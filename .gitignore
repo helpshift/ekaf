@@ -1,0 +1,10 @@
+.eunit
+.dialyzer_plt
+deps
+doc/
+ebin
+rel/ekafka/
+*.o
+*.beam
+*.plt
+user_default.erl

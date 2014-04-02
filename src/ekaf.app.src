@@ -1,0 +1,13 @@
+{application, ekaf,
+ [
+  {description, "Erlang Kafka client"},
+  {vsn, "git"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  poolboy
+                 ]},
+  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils]},
+  {mod, { ekaf, []}}
+ ]}.
