@@ -2,8 +2,10 @@
 
 -include("ekaf_definitions.hrl").
 
-% -include_lib("eunit/include/eunit.hrl").
-% -include_lib("stdlib/include/qlc.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/qlc.hrl").
+-endif.
 
 -export([decode/1]).
 

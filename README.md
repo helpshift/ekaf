@@ -1,20 +1,26 @@
 ==ekaf==
 
-A Kafka 0.8 client written in erlang.
+A Kafka client written in erlang.
 
+* Conforms to the 0.8 Kafka wire protocol
+* Produce data to a Topic syncronously and asynchronously
+* Publish in batches
 * Query for a Topic's metadata from a bootstrapped {Broker, Port}
-* Produce data to a Topic
 
 ==Features==
 ===Simple API===
 
     application:start(ekaf),
     application:set_env(ekaf, {ekaf_bootstrap_broker,{"localhost",9091}}),
+
     %% send 1 message
-    ekaf:publish_sync(<<"test8">>, <<"foo">>).
+    ekaf:publish_sync(<<"test">>, <<"foo">>).
+    %% send a message asynchronously
+    ekaf:publish_async(<<"test">>, <<"{\"a\":1}">>).
+
     %% send many Messages
     %% -include_lib("ekaf/include/ekaf_definitions.hrl").
-    ekaf:publish_sync(<<"test8">>, [<<"foo">>, <<"bar">>]).
+    ekaf:publish_sync(<<"test">>, [<<"foo">>, {<<"key">>, <<"value">>}, <<"back_to_binary">> ]).
 
 See `test/ekaf_tests.erl` for more
 
@@ -56,13 +62,51 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
 
 ===Tests===
+
+    rebar compile eunit skip_deps=true
+
 The tests assume you have a topic `test`. Create it as instructed on the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
 
     bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic test
 
+===Benchmarks===
+Against a local broker
+
+* Roughly 15,000+ async calls per second
+* Roughly 500     sync calls per second
+
+Here's how you can test it out yourself
+
+**Async**
+
+    (node@127.0.0.1)28> Rps = fun(N) ->N1 = now(),[ ekaf:publish(<<"test8">>,<<"a">>) || _X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
+    #Fun<erl_eval.6.80484245>
+    (node@127.0.0.1)32> Rps(100).
+    16371.971185330714
+    (node@127.0.0.1)31> Rps(1000).
+    13715.72782509704
+    (node@127.0.0.1)30> Rps(10000).
+    16077.816632501308
+    (node@127.0.0.1)29> Rps(100000).
+    16720.88692934957
+
+**Sync**
+
+(node@127.0.0.1)33> SRps = fun(N) ->N1 = now(),[ ekaf:produce_sync(<<"test8">>,<<"a">>) || _X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
+    #Fun<erl_eval.6.80484245>
+    (node@127.0.0.1)34> SRps(100).
+    485.1707558475206
+    (node@127.0.0.1)35> SRps(1000).
+    473.421411808929
+    (node@127.0.0.1)36> SRps(10000).
+    491.2887383012484
+    (node@127.0.0.1)37> SRps(100000).
+    532.82974528447
+
 ==Coming in 0.2==
-* Batching ( currently a publish only sends 1 message)
 * Explicit Partition choosing strategies ( eg: round robin, hash, leader under low load, etc )
 
 ==Coming in 0.3==
 * Compression when publishing
+
+Add a feature request at https://github.com/bosky101/ekaf or check the ekaf web server at https://github.com/bosky101/ekafboy

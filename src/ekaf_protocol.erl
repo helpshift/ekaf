@@ -3,7 +3,8 @@
 -export([encode_metadata_request/3]).
 -export([decode_metadata_response/1]).
 
--export([encode_async_produce_request/3,encode_sync_produce_request/3,encode_produce_request/3]).
+-export([encode_sync/3, encode_async/3,
+         encode_produce_request/3]).
 -export([decode_produce_response/1]).
 
 -export([encode_request/4,
@@ -11,8 +12,10 @@
 
 -include("ekaf_definitions.hrl").
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
+-endif.
 
 encode_bytes(undefined) ->
     <<-1:32/signed>>;
@@ -34,13 +37,11 @@ encode_array(List) ->
 encode_request(ApiKey, CorrelationId, ClientId, RequestMessage) ->
     <<ApiKey:16, ?API_VERSION:16, CorrelationId:32, (encode_string(ClientId))/binary, RequestMessage/binary>>.
 
-encode_sync_produce_request(CorrelationId, ClientId, Packet) ->
-    ekaf_protocol_produce:encode_sync(CorrelationId, ClientId, Packet).
+encode_sync(CorrelationId, ClientId, Packet)->
+    ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet).
 
-encode_async_produce_request(CorrelationId, ClientId, Packet) ->
-    ekaf_protocol_produce:encode_async(CorrelationId, ClientId, Packet).
-
-% fun(P)-> l(ekafka_connection),l(ekafka_protocol), {ok,C1} = ekafka_connection:start_link(), gen_server:call(C1, {produce,{"localhost",9091},P } ) end (#produce_packet{ required_acks=1, timeout=100, topics= [ #topic{name = <<"a1only">>, partitions= [ #partition{id=0, message_sets_size=1, message_sets = [#message_set{  offset=0,size=1, messages= [#message{value= <<"foo">>}] }]} ] }] }) .
+encode_async(CorrelationId, ClientId, Packet)->
+    ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet).
 
 encode_produce_request(CorrelationId, ClientId, Packet)->
     ekaf_protocol_produce:encode(CorrelationId, ClientId, Packet).

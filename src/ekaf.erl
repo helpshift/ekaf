@@ -5,13 +5,17 @@
 %% includes
 -include("ekaf_definitions.hrl").
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
+-endif.
 
 -export([start/0, start/2]).
 -export([stop/0, stop/1]).
 
--export([metadata/1, publish/2, produce_sync/2, default_broker/0, pick/1]).
+-export([metadata/1,
+         publish/2, produce_sync/2, produce_async/2,
+         default_broker/0, pick/1]).
 
 start() ->
     application:start(?MODULE).
@@ -38,15 +42,24 @@ metadata(Topic)->
     end.
 
 publish(Topic,Data)->
-    ?MODULE:produce_sync(Topic, Data).
+    ?MODULE:produce_async(Topic, Data).
 
 produce_sync(Topic, Data)->
+    Worker = ?MODULE:pick(Topic),
+    case Worker of
+        {error,_}=Error->
+            Error;
+        _ ->
+            gen_fsm:sync_send_event(Worker, {produce_sync, Data})
+    end.
+
+produce_async(Topic, Data)->
     Worker = ?MODULE:pick(Topic),
     case Worker of
         {error,_}->
             ok;
         _ ->
-            gen_fsm:sync_send_event(Worker, {produce_sync, Data})
+            gen_fsm:send_event(Worker, {produce_async, Data})
     end.
 
 pick(Topic)->
@@ -57,7 +70,6 @@ pick(Topic)->
             ekaf_fsm:start_link([From, ?MODULE:default_broker(),Topic]),
             receive
                 {ready,Started} ->
-                    % ?debugFmt("ready with pool ~p",[Started] ),
                     ok
             end,
             {error,try_again};

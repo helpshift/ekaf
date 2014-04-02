@@ -111,9 +111,7 @@ connected({metadata,Topic}=Event, State) ->
     end;
 
 connected(Event, State)->
-    io:format("~n in connect got: ~p",[Event]),
     fsm_next_state(connected,State).
-
 
 % {metadata,0,
 %       [{broker,2,<<"vagrant-ubuntu-precise-64">>,9092},
@@ -134,7 +132,6 @@ connected(Event, State)->
 %                {partition,0,0,3,[{replica,3}],[{isr,3}]}]}]}
 bootstrapping({metadata,Metadata}, State)->
     BrokersDict = lists:foldl(fun(Broker,Dict)->
-                                      %io:format("~n each broekr is ~p",[Broker]),
                                       dict:append(Broker#broker.node_id,
                                                   Broker,
                                                   Dict)
@@ -159,21 +156,40 @@ bootstrapping({metadata,Metadata}, State)->
                                 ok
                         end
                 end, Metadata#metadata_response.topics),
-    %io:format("~n bootstrapping started with specs ~p",[Started]),
     State#st.reply_to ! {ready,Started},
     {stop, normal, State#st{metadata = Metadata}};
 bootstrapping(Event, State)->
     %io:format("~n got: ~p~n in bootstrapping state: ~p",[Event, State]),
     fsm_next_state(bootstrapping,State).
 
+ready({produce_async, Messages}, State)->
+    CorrelationId = State#st.cor_id+1,
+    Topic = State#st.topic, Partition=State#st.partition, Leader = State#st.leader, Socket=State#st.socket, ClientId = State#st.client_id,
+    MessageSets = ekaf_lib:data_to_message_sets(Messages),
+    TopicPacket = #topic{
+      name = Topic,
+      partitions =
+      [#partition{id = Partition, leader = Leader,
+                  %% each messge goes in a different messageset, even for batching
+                  message_sets_size = length(MessageSets), message_sets = MessageSets}]},
+    ProducePacket = #produce_request{
+      timeout=100, topics= [TopicPacket]
+     },
+    Request = ekaf_protocol:encode_async(CorrelationId,ClientId, ProducePacket),
+    case gen_tcp:send(Socket, Request) of
+        ok ->
+            NewState = State#st{cor_id = CorrelationId + 1},
+            fsm_next_state(ready, NewState);
+        {error, Reason} ->
+            ?ERROR_MSG("~p",[Reason]),
+            {stop, Reason, State}
+    end;
 ready(ping, State)->
     PoolName = State#st.pool,
-    %io:format("~n in ready with pool ~p with state: ~p",[PoolName,State]),
     fsm_next_state(ready,State);
 ready(timeout, State)->
     fsm_next_state(ready,State);
 ready(Event, State)->
-    %io:format("~n in ready got: ~p~n in ready state: ~p",[Event, State]),
     fsm_next_state(ready,State).
 %%--------------------------------------------------------------------
 %% Func: StateName/3
@@ -208,23 +224,26 @@ ready({produce_sync, Messages}, From, State)->
     CorrelationId = State#st.cor_id+1,
     Topic = State#st.topic, Partition=State#st.partition, Leader = State#st.leader, Socket=State#st.socket, ClientId = State#st.client_id,
     MessageSets = ekaf_lib:data_to_message_sets(Messages),
-    ?debugFmt("message set is ~p",[MessageSets]),
     TopicPacket = #topic{
       name = Topic,
       partitions =
-      [#partition{
-                      id = Partition, leader = Leader,
-                      %% always only 1 message set. which can have multiple messages
-                      message_sets_size = length(MessageSets), message_sets = MessageSets}]},
-    ProducePacket = #produce_request{ required_acks=1, timeout=100, topics= [TopicPacket]},
-    Request = ekaf_protocol:encode_produce_request(CorrelationId,ClientId, ProducePacket),
-    io:format("encoded produce as ~p ~p",[Request, hex:bin_to_hexstr(Request)]),
+      [#partition{id = Partition,
+                  leader = Leader,
+                  %% each messge goes in a different messageset, even for batching
+                  message_sets_size = length(MessageSets),
+                  message_sets = MessageSets}]},
+    ProducePacket = #produce_request{
+      required_acks=1,
+      timeout=100,
+      topics= [TopicPacket]
+     },
+    Request = ekaf_protocol:encode_sync(CorrelationId,ClientId, ProducePacket),
     case gen_tcp:send(Socket, Request) of
         ok ->
             Response =
                 receive
                     {tcp, _Port, <<CorrelationId:32, _/binary>> = Packet} ->
-                        ?INFO_MSG("got reply ~p [~p]",[Packet,ekaf_protocol:decode_produce_response(Packet)]),
+                        %?INFO_MSG("got reply ~p [~p]",[Packet,ekaf_protocol:decode_produce_response(Packet)]),
                         ekaf_protocol:decode_produce_response(Packet);
                     Packet ->
                         {error,Packet}
@@ -268,8 +287,7 @@ handle_sync_event(Event, From, StateName, State) ->
 %%          {stop, Reason, NewStateData}
 %%--------------------------------------------------------------------
 handle_info(Info, StateName, State) ->
-    PoolName = State#st.topic,
-    io:format("~n got info ~p pool:~p state:~p",[Info,PoolName,State]),
+    Topic = State#st.topic,
     {next_state, StateName, State}.
 
 %%--------------------------------------------------------------------

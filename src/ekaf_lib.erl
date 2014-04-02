@@ -7,7 +7,7 @@
 data_to_message_sets(Data)->
     data_to_message_sets(Data,[]).
 data_to_message_sets([],Messages)->
-    Messages;
+    lists:reverse(Messages);
 data_to_message_sets([Message|Rest], Messages) when is_record(Message,message)->
     data_to_message_sets(Rest, [Message|Messages]);
 data_to_message_sets([{Key,Value}|Rest], Messages ) ->

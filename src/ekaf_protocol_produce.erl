@@ -2,11 +2,13 @@
 
 -include("ekaf_definitions.hrl").
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
+-endif.
 
 -export([decode/1,encode/3]).
-
+-export([encode_produce_request/3]).
 
 encode(CorrelationId, ClientId, Packet)->
     encode_sync(CorrelationId, ClientId, Packet).
@@ -27,8 +29,6 @@ encode_sync(CorrelationId, ClientId, ProducePacket) ->
 encode_async(CorrelationId, ClientId, ProducePacket) ->
     RequireAck = ProducePacket#produce_request.required_acks,
     encode_produce_request(CorrelationId, ClientId, ProducePacket#produce_request{ required_acks = RequireAck bxor ?BITMASK_REQUIRE_ACK }).
-
-% fun(P)-> l(ekafka_connection),l(ekafka_protocol), {ok,C1} = ekafka_connection:start_link(), gen_server:call(C1, {produce,{"localhost",9091},P } ) end (#produce_packet{ required_acks=1, timeout=100, topics= [ #topic{name = <<"a1only">>, partitions= [ #partition{id=0, message_sets_size=1, message_sets = [#message_set{  offset=0,size=1, messages= [#message{value= <<"foo">>}] }]} ] }] }).
 
 encode_produce_request(CorrelationId, ClientId, ProducePacket)->
     ProduceRequest = encode_produce_packet(ProducePacket),
@@ -81,7 +81,9 @@ encode_partition(Partition) when is_integer(Partition)->
     encode_partition(#partition{ id = Partition, message_sets_size = 0 });
 encode_partition(#partition{ id = Id,  message_sets = MessageSets })->
     MessageSetsEncoded = encode_message_sets(MessageSets), %%% NOTE: made this set instead of sets
+    Size = byte_size(MessageSetsEncoded),
     <<Id:32,
+     Size:32,
      MessageSetsEncoded/binary>>.
 
 encode_message_sets(L) ->
@@ -91,13 +93,13 @@ encode_message_sets([MessageSet|Rest],Bin)->
 encode_message_sets(_,Bin) ->
     Bin.
 
-encode_message_set(#message_set{ offset = Offset, messages = Messages }) ->
-    ?debugFmt ("encode ~p messages",[Messages]),
-    MessagesEncoded = encode_messages(Messages),
-    Bin = <<Offset:64, MessagesEncoded/binary>>,
-    Size = byte_size(Bin),
-    <<Size:32, Bin/binary>>;
 
+encode_message_set(#message_set{ offset = Offset, messages = Messages }) ->
+    MessagesEncoded = encode_messages(Messages),
+    Size = byte_size(MessagesEncoded),
+    <<Offset:64,
+     Size:32,
+     MessagesEncoded/binary>>;
 encode_message_set(_) ->
     <<>>.
 
@@ -110,17 +112,15 @@ encode_message_set(_) ->
 encode_messages(L)->
     encode_messages(L,<<>>).
 encode_messages([],Bin)->
-    CRC = erlang:crc32(Bin),
-    Final = Bin,
-    %Final = <<CRC:32,Bin/binary>>,
-    Size = byte_size(Final),
-    <<Size:32,Final/binary>>;
-    % Bin;
+    % CRC = erlang:crc32(Bin),
+    % Final = Bin,
+    % %Final = <<CRC:32,Bin/binary>>,
+    % Size = byte_size(Final),
+    % <<Size:32,Final/binary>>;
+    Bin;
 encode_messages([Message|Rest],Bin) ->
-    io:format("~nencode message ~p~n",[Message]),
     encode_messages( Rest, << Bin/binary,(encode_message(Message))/binary>>);
 encode_messages(Since,Bin) ->
-    io:format("~n got ~p so just return binary ~p~n",[Since,Bin]),
     Bin.
 encode_message(Message) when is_binary(Message)->
     encode_message(#message{ attributes = <<0:8>>, key = undefined, value = Message});
@@ -128,20 +128,10 @@ encode_message(#message{ attributes = Atts, key = Key, value=Value})->
     Magic = ?API_VERSION,
     Remaining = <<Magic:8, Atts:8, (ekaf_protocol:encode_bytes(Key))/binary, (ekaf_protocol:encode_bytes(Value))/binary>>,
     CRC = erlang:crc32(Remaining),
-    M1 = <<CRC:32, Remaining/binary>>,
-    M2 = <<(byte_size(Remaining)):32, Remaining/binary>>,
-    Size = byte_size(M1),
-    % <<0:64,
-    %  Size:32,
-    %  CRC:32,
-    %  M1/binary>>;
-    %Remaining;
-    M1;
-    %<<M2/binary>>;
-encode_message(_M)->
-    io:format("~n dont know how to handle ~p",[_M]),
-    <<>>.
+    <<CRC:32, Remaining/binary>>;
 
+encode_message(_M)->
+    <<>>.
 
     % ProduceResponse => [TopicName [Partition ErrorCode Offset]]
     %     TopicName => string
