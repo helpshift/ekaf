@@ -207,15 +207,15 @@ ready({metadata, Topic}, From, State)->
 ready({produce_sync, Messages}, From, State)->
     CorrelationId = State#st.cor_id+1,
     Topic = State#st.topic, Partition=State#st.partition, Leader = State#st.leader, Socket=State#st.socket, ClientId = State#st.client_id,
-    MessageSet = ekaf_lib:data_to_message_set(Messages),
-    ?debugFmt("message set is ~p",[MessageSet]),
+    MessageSets = ekaf_lib:data_to_message_sets(Messages),
+    ?debugFmt("message set is ~p",[MessageSets]),
     TopicPacket = #topic{
       name = Topic,
       partitions =
       [#partition{
                       id = Partition, leader = Leader,
                       %% always only 1 message set. which can have multiple messages
-                      message_sets_size = 3, message_sets = [MessageSet]}]},
+                      message_sets_size = length(MessageSets), message_sets = MessageSets}]},
     ProducePacket = #produce_request{ required_acks=1, timeout=100, topics= [TopicPacket]},
     Request = ekaf_protocol:encode_produce_request(CorrelationId,ClientId, ProducePacket),
     io:format("encoded produce as ~p ~p",[Request, hex:bin_to_hexstr(Request)]),

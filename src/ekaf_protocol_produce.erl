@@ -79,8 +79,8 @@ encode_partitions(_) ->
 
 encode_partition(Partition) when is_integer(Partition)->
     encode_partition(#partition{ id = Partition, message_sets_size = 0 });
-encode_partition(#partition{ id = Id,  message_sets = [MessageSet] })->
-    MessageSetsEncoded = encode_message_set(MessageSet), %%% NOTE: made this set instead of sets
+encode_partition(#partition{ id = Id,  message_sets = MessageSets })->
+    MessageSetsEncoded = encode_message_sets(MessageSets), %%% NOTE: made this set instead of sets
     <<Id:32,
      MessageSetsEncoded/binary>>.
 
@@ -94,9 +94,7 @@ encode_message_sets(_,Bin) ->
 encode_message_set(#message_set{ offset = Offset, messages = Messages }) ->
     ?debugFmt ("encode ~p messages",[Messages]),
     MessagesEncoded = encode_messages(Messages),
-    Bin = <<Offset:64,
-           MessagesEncoded/binary>>,
-
+    Bin = <<Offset:64, MessagesEncoded/binary>>,
     Size = byte_size(Bin),
     <<Size:32, Bin/binary>>;
 
@@ -113,7 +111,8 @@ encode_messages(L)->
     encode_messages(L,<<>>).
 encode_messages([],Bin)->
     CRC = erlang:crc32(Bin),
-    Final = <<CRC:32,Bin/binary>>,
+    Final = Bin,
+    %Final = <<CRC:32,Bin/binary>>,
     Size = byte_size(Final),
     <<Size:32,Final/binary>>;
     % Bin;
@@ -130,12 +129,15 @@ encode_message(#message{ attributes = Atts, key = Key, value=Value})->
     Remaining = <<Magic:8, Atts:8, (ekaf_protocol:encode_bytes(Key))/binary, (ekaf_protocol:encode_bytes(Value))/binary>>,
     CRC = erlang:crc32(Remaining),
     M1 = <<CRC:32, Remaining/binary>>,
+    M2 = <<(byte_size(Remaining)):32, Remaining/binary>>,
     Size = byte_size(M1),
     % <<0:64,
     %  Size:32,
     %  CRC:32,
     %  M1/binary>>;
-    <<Remaining/binary>>;
+    %Remaining;
+    M1;
+    %<<M2/binary>>;
 encode_message(_M)->
     io:format("~n dont know how to handle ~p",[_M]),
     <<>>.
