@@ -13,9 +13,11 @@
 -export([start/0, start/2]).
 -export([stop/0, stop/1]).
 
--export([metadata/1,
-         publish/2, produce_sync/2, produce_async/2,
-         default_broker/0, pick/1]).
+-export([pick/1,
+         publish/2, batch/2,
+         produce_sync_batched/2, produce_async_batched/2,
+         produce_sync/2, produce_async/2,
+         metadata/1, info/1]).
 
 start() ->
     application:start(?MODULE).
@@ -32,34 +34,58 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 %%% API
 %%--------------------------------------------------------------------
+
+batch(Topic,Data)->
+    produce_sync_batched(Topic, Data).
+
+publish(Topic,Data)->
+    produce_async(Topic, Data).
+
+produce_sync(Topic, Data)->
+    common_sync(produce_sync, Topic, Data).
+
+produce_async(Topic, Data)->
+    common_async(produce_async, Topic, Data).
+
+produce_sync_batched(Topic, Data)->
+    common_sync(produce_sync_batched, Topic, Data).
+
+produce_async_batched(Topic, Data)->
+    common_async(produce_async_batched, Topic, Data).
+
 metadata(Topic)->
     Worker = ?MODULE:pick(Topic),
     case Worker of
-        {error,_}->
-            ok;
+        {error,_}=E->
+            E;
         _ ->
            gen_fsm:sync_send_event(Worker, {metadata, Topic})
     end.
-
-publish(Topic,Data)->
-    ?MODULE:produce_async(Topic, Data).
-
-produce_sync(Topic, Data)->
-    Worker = ?MODULE:pick(Topic),
+info(Topic)->
+    Worker = ekaf:pick(Topic),
     case Worker of
-        {error,_}=Error->
-            Error;
+        {error,_}=E->
+            E;
         _ ->
-            gen_fsm:sync_send_event(Worker, {produce_sync, Data})
+            gen_fsm:sync_send_event(Worker, info)
     end.
 
-produce_async(Topic, Data)->
+common_async(Event, Topic, Data)->
     Worker = ?MODULE:pick(Topic),
     case Worker of
         {error,_}->
             ok;
         _ ->
-            gen_fsm:send_event(Worker, {produce_async, Data})
+            gen_fsm:send_event(Worker, {Event, Data})
+    end.
+
+common_sync(Event, Topic, Data)->
+    Worker = ?MODULE:pick(Topic),
+    case Worker of
+        {error,_}->
+            ok;
+        _ ->
+            gen_fsm:sync_send_event(Worker, {Event, Data})
     end.
 
 pick(Topic)->
@@ -67,7 +93,7 @@ pick(Topic)->
         {error,{no_such_group,_}}->
             pg2:create(Topic),
             From = self(),
-            ekaf_fsm:start_link([From, ?MODULE:default_broker(),Topic]),
+            ekaf_fsm:start_link([From, ekaf_lib:get_bootstrap_broker(),Topic]),
             receive
                 {ready,Started} ->
                     ok
@@ -77,12 +103,4 @@ pick(Topic)->
             Worker = poolboy:checkout(PoolPid),
             poolboy:checkin(PoolPid,Worker),
             Worker
-    end.
-
-default_broker()->
-    case application:get_env(ekaf, ekaf_bootstrap_broker) of
-        {Broker,Port}->
-            {Broker,Port};
-        _ ->
-            {"localhost",9091}
     end.

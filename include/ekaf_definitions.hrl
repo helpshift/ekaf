@@ -1,6 +1,11 @@
 %%======================================================================
 %% Constants
 %%======================================================================
+-define(EKAF_DEFAULT_MAX_BUFFER_SIZE, 5).
+-define(EKAF_DEFAULT_BOOTSTRAP_BROKER,{"localhost",9091}).
+-define(EKAF_DEFAULT_PER_PARTITION_WORKERS, 2).
+-define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX,4).
+
 -define(API_VERSION, 0).
 -define(PRODUCE_REQUEST, 0).
 -define(METADATA_REQUEST, 3).
@@ -55,6 +60,9 @@
 %%======================================================================
 %% Records
 %%======================================================================
+%% Used by workers
+-record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1 }).
+
 
 %% Requests
 -record(produce_request, { required_acks=0::kafka_word(), timeout=0::integer(), topics = []::list()}).
