@@ -1,35 +1,90 @@
-==ekaf==
+# ekaf #
 
 An advanced but simple to use, Kafka client written in Erlang
 
-* Conforms to the 0.8 Kafka wire protocol
+### Highlights of v0.1 ###
+* A minimal implementation of a `Producer` as per 0.8 Kafka wire protocol
 * Produce data to a Topic syncronously and asynchronously
 * Option to batche messages and customize the concurrency
 * Several lazy handling of both metadata requests as well as connection pool creation
 
 ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing to ekaf via simple HTTP endpoints.
 
-==Features==
-===Simple API===
+Add a feature request at https://github.com/bosky101/ekaf or check the ekaf web server at https://github.com/bosky101/ekafboy
+
+##Features##
+###Simple API###
 
 Topic is a binary. and the payload can be a list, a binary, a key-value tuple, or a combination of all the above.
 
+    %%------------------------
+    %% Start
+    %%------------------------
     application:start(ekaf),
+
+    %% ekaf needs atleast 1 broker to connect.
+    %% To eliminate a SPOF, use an IP to a load balancer to a bunch of brokers
     application:set_env(ekaf, {ekaf_bootstrap_broker,{"localhost",9091}}),
 
-    %% send 1 message
     Topic = <<"ekaf">>,
-    ekaf:publish_sync(Topic, <<"foo">>).
-    %% send a message asynchronously
-    ekaf:publish_async(Topic, <<"{\"a\":1}">>).
 
-    %% send many Messages
-    %% -include_lib("ekaf/include/ekaf_definitions.hrl").
-    ekaf:publish_sync(Topic, [<<"foo">>, {<<"key">>, <<"value">>}, <<"back_to_binary">> ]).
+    %%------------------------
+    %% Send data to a message
+    %%------------------------
+
+    %% sync
+    ekaf:publish_sync(Topic, <<"foo">>).
+
+    %% async
+    ekaf:publish_async(Topic, jsx:encode(PropList) ).
+
+    %%------------------------
+    %% Send in batches
+    %%------------------------
+
+    %% send many messages in 1 packet by sending a list to represent a payload
+    {sent, Partition, _} =
+        ekaf:publish_sync(
+            Topic,
+            [<<"foo">>, {<<"key">>, <<"value">>}, <<"back_to_binary">> ]
+        ).
+
+    %%------------------------
+    %% Send in batches
+    %%------------------------
+
+    %% sync
+    {buffered, _Partition, _BufferIndex} =
+        ekaf:publish_sync_batched(
+            Topic,
+            [ekaf_utils:itob(X) || X<- lists:seq(1,1000) ]
+        ).
+
+    %% async
+    {buffered, _Partition, _BufferIndex} =
+        ekaf:publish_async_batched(
+            Topic,
+            [<<"foo">>, {<<"key">>, <<"value">>}, <<"back_to_binary">> ]
+        ).
+
+    %%------------------------
+    %% Other helpers
+    %%------------------------
+
+    %% metadata
+    ekaf:metadata(Topic)
+
+    %% pick a worker, and directly communicate with it
+    ekaf:pick(Topic)
+
+    m(ekaf).
+    m(ekaf_lib).
+
+    %% see the tests for a complete API, and `ekaf.erl` for more
 
 See `test/ekaf_tests.erl` for more
 
-===Batch writes===
+### Batch writes ###
 
 You can batch async and sync calls until they reach 1000 for a partition
 
@@ -44,7 +99,7 @@ You can also set different batch sizes for different topics.
        {ekaf_max_buffer_size, 1000}    % for remaining topics
     ]}]}.
 
-===Tunable Concurrency===
+### Tunable Concurrency ###
 You can decide how many workers to start for each partition
 
     %% a single topic with 3 partitions will have 15 workers per node
@@ -63,20 +118,23 @@ You can also set different concurrency strategies for different topics
 
 By lazily starting a connection pool, these workers only are spawned on receipt of the first produce message received by that worker. More on this below.
 
-===No need for Zookeeper===
+### No need for Zookeeper ###
 Does not need a connection to Zookeeper for broker info, etc. This adopts the pattern encouraged from the 0.8 protocol
 
-===No linked drivers, No NIF's  ===
-Deals with the protcol completely in erlang. Pattern matching FTW, ( also see [https://coderwall.com/p/1lyfxg https://coderwall.com/p/1lyfxg] ). Moreover, by using binary as the preferred format for Topic, etc, - lists are avoided in all places except the {BrokerHost,_Port}.
+### No linked drivers, No NIF's   ###
+Deals with the protcol completely in erlang. Pattern matching FTW, see the blogpost that inspired this project ( also see https://coderwall.com/p/1lyfxg ).
 
-===Optimized for using on a cluster===
-Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_bhroker,Broker}` during the first produce to a topic, and then caches this data for that topic.
+### Optimized for using on a cluster ###
+* Works well if embedding into other OTP/rebar style apps ( eg: tested with `kafboy`)
+* Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_bhroker,Broker}` during the first produce to a topic, and then caches this data for that topic.
+* Extensive use of records for `O(1)` lookup
+* By using binary as the preferred format for Topic, etc, - lists are avoided in all places except the {BrokerHost,_Port}.
 
-===Concurrency when publishing to the same Topic via Connection Pool===
+### Concurrency when publishing to the same Topic via Connection Pool ###
 Each worker represents a connection to a broker + topic + partition combination.
 Uses `poolboy` to implement a connection pool for each partition for a topic. Workers are brought back up via poolboy
 
-===Concurrency when publishing to multiple topics via process groups===
+### Concurrency when publishing to multiple topics via process groups ###
 Each Topic, will have a pg2 process group, You can pick a random partition worker for a topic via
 
     case ekaf:pick(<<"topic_foo">>) of
@@ -88,19 +146,19 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
             %% SomeWorker ! info
     end
 
-===State Machines===
+### State Machines ###
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
 
-===Powering kafboy, a HTTP gateway to ekaf===
+### Powering kafboy, a HTTP gateway to ekaf ###
 
-[https://github.com/bosky101/kafboy https://github.com/bosky101/kafboy] sits on top of ekaf and is powered by `Cowboy` to send JSON posted to it directly to kafka
+`kafboy` ( https://github.com/bosky101/kafboy ) sits on top of ekaf and is powered by `Cowboy` to send JSON posted to it directly to kafka
 
     curl -d a=apple -d b=ball http://localhost:8000/sync/topic1
 
     POST /sync/topic_name
     POST /async/topic_name
 
-===Benchmarks===
+### Benchmarks ###
 Against a local broker
 
 * Roughly 15,000+ async calls per second
@@ -109,21 +167,21 @@ Against a local broker
 Here's how you can test it out yourself
 
 **Async**
-
-    (node@127.0.0.1)28> Rps = fun(N) ->N1 = now(),[ ekaf:publish(<<"test8">>,<<"a">>) || _X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
+    %% ARps = async requests per second
+    (node@127.0.0.1)28> ARps = fun(N) ->N1 = now(),[ ekaf:publish(<<"test8">>,<<"a">>) || _X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
     #Fun<erl_eval.6.80484245>
-    (node@127.0.0.1)32> Rps(100).
+    (node@127.0.0.1)32> ARps(100).
     16371.971185330714
-    (node@127.0.0.1)31> Rps(1000).
+    (node@127.0.0.1)31> ARps(1000).
     13715.72782509704
-    (node@127.0.0.1)30> Rps(10000).
+    (node@127.0.0.1)30> ARps(10000).
     16077.816632501308
-    (node@127.0.0.1)29> Rps(100000).
+    (node@127.0.0.1)29> ARps(100000).
     16720.88692934957
 
 **Sync**
-
-(node@127.0.0.1)33> SRps = fun(N) ->N1 = now(),[ ekaf:produce_sync(<<"test8">>,<<"a">>) || _X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
+    %% SRps = sync requests per second
+    (node@127.0.0.1)33> SRps = fun(N) ->N1 = now(),[ ekaf:produce_sync(<<"test8">>,<<"a">>) || _X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
     #Fun<erl_eval.6.80484245>
     (node@127.0.0.1)34> SRps(100).
     485.1707558475206
@@ -134,7 +192,7 @@ Here's how you can test it out yourself
     (node@127.0.0.1)37> SRps(100000).
     532.82974528447
 
-===Tests===
+### Tests ###
 
     rebar compile eunit skip_deps=true
 
@@ -176,12 +234,10 @@ The tests assume you have a topic `test`. Create it as instructed on the Kafka Q
     ekafka_protocol        :  0%
     ekafka_sup             :  0%
 
-Total                  : 37%
+    Total                  : 37%
 
-==Coming in 0.2==
+
+### Goals for v0.2 ###
 * Explicit Partition choosing strategies ( eg: round robin, hash, leader under low load, etc )
-
-==Coming in 0.3==
 * Compression when publishing
-
-Add a feature request at https://github.com/bosky101/ekaf or check the ekaf web server at https://github.com/bosky101/ekafboy
+* Add a feature request at https://github.com/bosky101/ekaf or check the ekaf web server at https://github.com/bosky101/ekafboy

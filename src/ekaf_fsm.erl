@@ -6,8 +6,10 @@
 %%--------------------------------------------------------------------
 -include("ekaf_definitions.hrl").
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
+-endif.
 
 -define(HIBERNATE_TIMEOUT, undefined).
 -define(KEEPALIVE_INTERVAL, 60*1000).
@@ -346,8 +348,9 @@ handle_sync_as_batch(BatchEnabled, {_, Messages}, From, PrevState)->
                     Response =
                         receive
                             {tcp, _Port, <<CorrelationId:32, _/binary>> = Packet} ->
-                                                %?INFO_MSG("got reply ~p [~p]",[Packet,ekaf_protocol:decode_produce_response(Packet)]),
-                                {sent,ekaf_protocol:decode_produce_response(Packet)};
+                                {sent,
+                                 State#ekaf_fsm.partition,
+                                 ekaf_protocol:decode_produce_response(Packet)};
                             Packet ->
                                 {error,Packet}
                         end,
