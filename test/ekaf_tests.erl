@@ -13,11 +13,12 @@ pick_test_() ->
     {setup,
      fun() ->
              application:start(poolboy),
+             application:load(ekaf),
+             %% after 100ms of inactivity, send remaining messages in buffer
+             application:set_env(ekaf, ekaf_sticky_partition_buffer_size, 100),
              application:start(ekaf)
      end,
      fun(_) ->
-             %application:stop(ekaf),
-             %application:stop(poolboy)
              ok
      end,
      [
@@ -47,9 +48,11 @@ pick_test_() ->
 
 t_pick_from_new_pool()->
     Topic = ?TEST_TOPIC,
-    ?assertEqual( pg2:get_closest_pid(Topic), {error,{no_such_group,?TEST_TOPIC}}),
-    Picked = ekaf:pick(?TEST_TOPIC),
-    ?assertEqual( Picked, {error, try_again}),
+    ekaf:prepare(Topic),
+    ?assertMatch({error,_},pg2:get_closest_pid(Topic)),
+    ekaf:pick(?TEST_TOPIC,fun(Worker)->
+                                  ?assertNotEqual( Worker, {error, try_again})
+                          end),
     ok.
 
 t_request_metadata()->
@@ -58,7 +61,7 @@ t_request_metadata()->
 
 t_publish_sync_to_topic()->
     Response  = ekaf:produce_sync(?TEST_TOPIC, <<"sync1">>),
-    ?assertMatch({sent,
+    ?assertMatch({{sent,_,_},
                   #produce_response{ topics = [
                                                #topic{ partitions = [
                                                                      #partition{ error_code = 0 }
@@ -72,7 +75,7 @@ t_publish_sync_to_topic()->
 
 t_publish_sync_multi_to_topic()->
     Response  = ekaf:produce_sync(?TEST_TOPIC,[ <<"multi1">>, <<"multi2">>, <<"multi3">> ]),
-    ?assertMatch({sent,
+    ?assertMatch({{sent,_,_},
                   #produce_response{ topics = [
                                                #topic{ partitions = [
                                                                      #partition{ error_code = 0 }
@@ -92,7 +95,6 @@ t_publish_sync_in_batch_to_topic()->
 
 t_publish_sync_multi_in_batch_to_topic()->
     Response  = ekaf:produce_sync_batched(?TEST_TOPIC, [ ekaf_utils:itob(X) || X<- lists:seq(1,101)]),
-    ?debugFmt("t_publish_many_sync_in_batch_to_topic: ~p",[Response]),
     ?assertMatch({buffered,_,_},
                  Response),
     ok.
@@ -109,16 +111,16 @@ t_publish_async_multi_to_topic()->
 
 t_publish_async_in_batch_to_topic()->
     Response  = ekaf:produce_async_batched(?TEST_TOPIC, <<"async in batch">>),
-    ?debugFmt("t_publish_async_in_batch_to_topic: ~p",[Response]),
     ?assertMatch(ok,
                  Response),
     ok.
 
 t_publish_async_multi_in_batch_to_topic()->
     Response  = ekaf:produce_async_batched(?TEST_TOPIC, [ ekaf_utils:itob(X) || X<- lists:seq(1,101)] ),
-    ?debugFmt("t_publish_many_async_in_batch_to_topic: ~p",[Response]),
-    ?assertMatch(ok,
-                 Response),
+    ?assertMatch(ok,Response),
+
+    %% to give time for all batches to flush
+    timer:sleep(3000),
     ok.
 
 t_is_clean()->

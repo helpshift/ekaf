@@ -5,15 +5,14 @@
 %% includes
 -include("ekaf_definitions.hrl").
 
--ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
--endif.
 
+-define(TIMEOUT, 1000).
 -export([start/0, start/2]).
 -export([stop/0, stop/1]).
 
--export([pick/1,
+-export([prepare/1, pick/1, pick/2, pick/3, pick_async/2,
          publish/2, batch/2,
          produce_sync_batched/2, produce_async_batched/2,
          produce_sync/2, produce_async/2,
@@ -36,7 +35,8 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 
 batch(Topic,Data)->
-    produce_sync_batched(Topic, Data).
+    eflame:apply(ekaf, produce_sync_batched, [Topic, Data]).
+    %produce_sync_batched(Topic, Data).
 
 publish(Topic,Data)->
     produce_async(Topic, Data).
@@ -54,53 +54,61 @@ produce_async_batched(Topic, Data)->
     common_async(produce_async_batched, Topic, Data).
 
 metadata(Topic)->
-    Worker = ?MODULE:pick(Topic),
-    case Worker of
-        {error,_}=E->
-            E;
-        _ ->
-           gen_fsm:sync_send_event(Worker, {metadata, Topic})
-    end.
+    ?MODULE:pick(Topic, fun(Worker)->
+                                case Worker of
+                                    {error,_}=E->
+                                        E;
+                                    _ ->
+                                        gen_fsm:sync_send_event(Worker, {metadata, Topic}, ?TIMEOUT)
+                                end
+                        end).
 info(Topic)->
-    Worker = ekaf:pick(Topic),
-    case Worker of
-        {error,_}=E->
-            E;
-        _ ->
-            gen_fsm:sync_send_event(Worker, info)
-    end.
+    ?MODULE:pick(Topic, fun(Worker)->
+                                case Worker of
+                                    {error,_}=E->
+                                        E;
+                                    _ ->
+                                        gen_fsm:sync_send_event(Worker, info)
+                                end
+                        end).
 
 common_async(Event, Topic, Data)->
-    Worker = ?MODULE:pick(Topic),
-    case Worker of
-        {error,_}->
-            ok;
-        _ ->
-            gen_fsm:send_event(Worker, {Event, Data})
-    end.
+    ?MODULE:pick_async(Topic, fun(Worker)->
+                                case Worker of
+                                    {error,_}=E->
+                                        E;
+                                    _ ->
+                                        gen_fsm:send_event(Worker, {Event, Data})
+                                end
+                        end).
 
 common_sync(Event, Topic, Data)->
-    Worker = ?MODULE:pick(Topic),
-    case Worker of
-        {error,_}->
-            ok;
-        _ ->
-            gen_fsm:sync_send_event(Worker, {Event, Data})
-    end.
+    ?MODULE:pick(Topic, fun(Worker)->
+                                case Worker of
+                                    {error,_} = E->
+                                        E;
+                                    _ ->
+                                        gen_fsm:sync_send_event(Worker, {Event, Data}, ?TIMEOUT)
+                                end
+                        end).
 
 pick(Topic)->
-    case pg2:get_closest_pid(Topic) of
-        {error,{no_such_group,_}}->
-            pg2:create(Topic),
-            From = self(),
-            ekaf_fsm:start_link([From, ekaf_lib:get_bootstrap_broker(),Topic]),
-            receive
-                {ready,Started} ->
-                    ok
-            end,
-            {error,try_again};
-        PoolPid ->
-            Worker = poolboy:checkout(PoolPid),
-            poolboy:checkin(PoolPid,Worker),
-            Worker
+    pick(Topic,undefined).
+pick(Topic, Callback)->
+    pick(Topic, sync, Callback).
+pick_async(Topic, Callback)->
+    pick(Topic, async, Callback).
+pick(Topic, Mode, Callback) ->
+    case Mode of
+        sync ->
+            ekaf_lib:pick(Topic,Callback);
+        _ ->
+            %% very fast
+            gen_server:cast(ekaf_server, {pick, Topic, Callback})
     end.
+
+prepare(Topic)->
+    pg2:create(Topic),
+    ekaf_fsm:start_link([
+                         self(),
+                         ekaf_lib:get_bootstrap_broker(),Topic]).

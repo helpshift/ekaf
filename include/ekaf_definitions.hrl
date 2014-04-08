@@ -1,14 +1,22 @@
 %%======================================================================
 %% Constants
 %%======================================================================
--define(EKAF_DEFAULT_MAX_BUFFER_SIZE, 5).
--define(EKAF_DEFAULT_BOOTSTRAP_BROKER,{"localhost",9091}).
--define(EKAF_DEFAULT_PER_PARTITION_WORKERS, 2).
--define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX,4).
+-define(EKAF_DEFAULT_MAX_BUFFER_SIZE             , 100).
+-define(EKAF_DEFAULT_BOOTSTRAP_BROKER            , {"localhost",9091}).
+-define(EKAF_DEFAULT_PER_PARTITION_WORKERS       , 100).
+-define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX   , 100).
+-define(EKAF_DEFAULT_BUFFER_TTL                  , 5000).
+-define(EKAF_SYNC_TIMEOUT                        , 1000).
 
--define(API_VERSION, 0).
--define(PRODUCE_REQUEST, 0).
--define(METADATA_REQUEST, 3).
+-define(EKAF_PACKET_IGNORE                       , 0).
+-define(EKAF_PACKET_ENCODE_METADATA              , 1).
+-define(EKAF_PACKET_DECODE_METADATA              , 2).
+-define(EKAF_PACKET_ENCODE_PRODUCE               , 3).
+-define(EKAF_PACKET_DECODE_PRODUCE               , 4).
+
+-define(API_VERSION                              , 0).
+-define(PRODUCE_REQUEST                          , 0).
+-define(METADATA_REQUEST                         , 3).
 
 %%======================================================================
 %% Macros
@@ -61,7 +69,7 @@
 %% Records
 %%======================================================================
 %% Used by workers
--record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1 }).
+-record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv }).
 
 
 %% Requests

@@ -4,10 +4,10 @@
   {vsn, "git"},
   {registered, []},
   {applications, [
-                  kernel,
-                  stdlib,
-                  poolboy
+                  kernel
+                  ,stdlib
+                  %,poolboy
                  ]},
-  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils]},
+  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils]},
   {mod, { ekaf, []}}
  ]}.

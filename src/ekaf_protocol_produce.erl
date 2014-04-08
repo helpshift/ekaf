@@ -7,7 +7,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -endif.
 
--export([decode/1,encode/3]).
+-export([decode/1,encode/3,encode_sync/3, encode_async/3]).
 -export([encode_produce_request/3]).
 
 encode(CorrelationId, ClientId, Packet)->
