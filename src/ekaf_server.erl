@@ -41,9 +41,8 @@ start_link() ->
 %%--------------------------------------------------------------------
 init(_Args) ->
     kickoff(),
-    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, random), %ordered_round_robin),
+    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ordered_round_robin),
     StickyPartitionBatchSize = ekaf_lib:get_default(any,ekaf_sticky_partition_buffer_size, 1000),
-    io:format("~n strategy is ~p",[Strategy]),
     {ok, #state{strategy = Strategy, ctr = 0, kv = dict:new(), buffer_size = StickyPartitionBatchSize }}.
 
 kickoff()->
@@ -149,7 +148,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 handle_pick({pick, Topic, _Callback}, _From, State)->
-    case ekaf_picker:choose_a_pid(Topic) of
+    case pg2:get_closest_pid(Topic) of
         {error, {no_such_group,_}} ->
             Added = State#state{ kv = dict:append(Topic, os:timestamp(), State#state.kv) },
             ekaf:prepare(Topic),

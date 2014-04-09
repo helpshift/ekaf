@@ -6,13 +6,15 @@
 pick(Topic)->
     Callback = undefined,
     pick(Topic,Callback).
-pick(Topic, Callback)->
-    pick(Topic, Callback, sync).
+pick(Topic, undefined) ->
+    pick(Topic, undefined, sync);
+pick(Topic, Callback) ->
+    pick(Topic, Callback, async).
 pick(Topic, Callback, Mode) ->
     case Mode of
         sync ->
             pick_sync(Topic,Callback);
-        _ when  Callback =:= undefined->
+        _ when Callback =:= undefined->
             pick_sync(Topic,Callback);
         _ ->
             %% non-blocking

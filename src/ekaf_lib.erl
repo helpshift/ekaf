@@ -55,16 +55,15 @@ common_async(Event, Topic, Data)->
 common_sync(Event, Topic, Data)->
     common_sync(Event, Topic, Data, ?EKAF_SYNC_TIMEOUT).
 common_sync(Event, Topic, Data, Timeout)->
-    ekaf:pick(Topic, fun(Worker)->
-                             case Worker of
-                                 {error,{retry,_N}} ->
-                                     common_async(Event, Topic, Data);
-                                 {error,_}=E ->
-                                     E;
-                                 _ ->
-                                     gen_fsm:sync_send_event(Worker, {Event, Data}, Timeout)
-                             end
-                     end).
+    Worker = ekaf:pick(Topic),
+    case Worker of
+        {error,{retry,_N}} ->
+            common_sync(Event, Topic, Data);
+        {error,_}=E ->
+            E;
+        _ ->
+            gen_fsm:sync_send_event(Worker, {Event, Data}, Timeout)
+    end.
 
 cursor(BatchEnabled,Messages,#ekaf_fsm{ cor_id = PrevCorId, max_buffer_size = MaxBufferSize, buffer = Buffer}=State)->
     Len = length(Buffer),
