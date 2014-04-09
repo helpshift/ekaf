@@ -6,6 +6,7 @@
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS       , 100).
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX   , 100).
 -define(EKAF_DEFAULT_BUFFER_TTL                  , 5000).
+-define(EKAF_DEFAULT_PARTITION_STRATEGY          , ordered_round_robin).
 -define(EKAF_SYNC_TIMEOUT                        , 1000).
 
 -define(EKAF_PACKET_IGNORE                       , 0).

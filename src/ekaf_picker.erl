@@ -1,5 +1,6 @@
 -module(ekaf_picker).
 -export([pick/1, pick/2, pick/3]).
+-include("ekaf_definitions.hrl").
 -export([pick_sync/2, pick_sync/3,
         pick_async/2]).
 
@@ -26,15 +27,15 @@ pick_async(Topic,Callback)->
     gen_server:cast(ekaf_server, {pick, Topic, Callback}).
 
 pick_sync(Topic, Callback)->
-    pick_sync(Topic, Callback, pg2).
+    pick_sync(Topic, Callback, ?EKAF_DEFAULT_PARTITION_STRATEGY).
 pick_sync(Topic, Callback, Strategy)->
     pick_sync(Topic, Callback, Strategy, 0).
 pick_sync(_Topic, _Callback, ketama, _Attempt)->
     %TODO
     error;
-pick_sync(Topic, Callback, Strategy, Attempt)->
+pick_sync(Topic, Callback, _Strategy, Attempt)->
     R = case pg2:get_closest_pid(Topic) of
-            PoolPid when is_pid(PoolPid), Strategy =:= pg2->
+            PoolPid when is_pid(PoolPid) ->
                 PoolPid;
             {error, {no_process,_}}->
                 {error,bootstrapping};

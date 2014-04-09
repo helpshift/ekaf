@@ -217,107 +217,46 @@ Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen
     POST /safe/batch/async/topic
     etc
 
-### Benchmarks ###
+# Benchmarks #
 Running the test on a 2GB RAM vagrant VM, where the broker was local
 
-#### Random Strategy ( Faster, since order not maintained among partition workers )
+    Test_Async_Multi_Batched = fun(N) ->Seq = lists:seq(1,N), N1 = now(),  ekaf:produce_async_batched(<<"ekaf">>, [ ekaf_utils:itob(X) || X <- Seq]), N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
 
-*With Batching*
+    (node@127.0.0.1)28> Test_Async_Multi_Batched(1000).
+    202429.14979757086
+    (node@127.0.0.1)29> Test_Async_Multi_Batched(10000).
+    438981.56277436344
+    (node@127.0.0.1)30> Test_Async_Multi_Batched(100000).
+    440893.7798705536
 
-* Roughly 15,000+ async calls per second
-* Roughly 500     sync calls per second
+#### test multiple calls to the async batch
 
-*Without Batching*
+    Test_Async_Batched = fun(N) ->Seq = lists:seq(1,N), N1 = now(), [ ekaf:produce_async_batched(<<"ekaf">>, ekaf_utils:itob(X)) || X <- Seq], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end
 
-* Roughly 50,000+ messages per second
-  ( based on time to send N events in 1 async batch call )
+    (node@127.0.0.1)24> Test_Async_Batched(1000).
+    9628.623973347969
+    (node@127.0.0.1)25> Test_Async_Batched(10000).
+    6209.853298425678
+    (node@127.0.0.1)26> Test_Async_Batched(100000).
+    6156.06385217173
 
-### test async batched multi requests per second ( ordered_round_robin )
-
-    Test_Async_Multi_Batched = fun(N) ->N1 = now(),  ekaf:produce_async_batched(<<"ekaf">>, [ ekaf_utils:itob(X) || X <- lists:seq(1,N)]), N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-
-    %% WITH strategy random
-    (node@127.0.0.1)4> Test_Async_Multi_Batched(1000).
-    407664.08479412965
-    (node@127.0.0.1)5> Test_Async_Multi_Batched(10000).
-    490196.07843137253
-    (node@127.0.0.1)6> Test_Async_Multi_Batched(100000).
-    522793.8101212882
-
-#### Ordered Round Robin
-
-*Without Batching*
-
-* Roughly 15,000+ async calls per second
-* Roughly 500     sync calls per second
-
-
-*With Batching*
-
-* Roughly 50,000+ messages per second
-  ( based on time to send N events in 1 async batch call )
-
-Batching is basically sending several messages at once. The following was calculated when sending 100,0000 messages in 1 batch, where the message was just a incrementally increasing number.
-
-#### test async requests per second ( ordered_round_robin )
+#### test multiple calls to the async without batch
 
     Test_Async = fun(N) -> Seq = lists:seq(1,N), N1 = now(), [ ekaf:produce_async(<<"ekaf">>, ekaf_utils:itob(X)) || X <- Seq], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-
-    (node@127.0.0.1)16> Test_Async(1000).
-    55676.18729469406
-    (node@127.0.0.1)17> Test_Async(10000).
-    24084.02434413181
-    (node@127.0.0.1)18> Test_Async(100000).
-    20446.57361431015
-
-#### test sync requests per second ( ordered_round_robin )
-
-    Test_Sync = fun(N) -> N1 = now(), [ ekaf:produce_sync(<<"ekaf">>,ekaf_utils:itob(X)) || X <- lists:seq(1,N)]], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-
-    (node@127.0.0.1)13> Test_Sync(1000).
-    542.7915116092248
-    (node@127.0.0.1)14> Test_Sync(10000).
-    635.5788524865338
-
-#### test batched async requests per second ( ordered_round_robin )
-
-    Test_Async_Batched = fun(N) ->N1 = now(), [ ekaf:produce_async_batched(<<"ekaf">>, ekaf_utils:itob(X)) || X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-
-    %% WITH strategy random
-    (node@127.0.0.1)9> Test_Async_Batched(1000).                                                     112246.04332697272
-    (node@127.0.0.1)10> Test_Async_Batched(10000).
-    123578.84330202668
-    (node@127.0.0.1)11> Test_Async_Batched(100000).
-    119016.16477549981
-
-#### test batched sync requests per second ( ordered_round_robin )
-
-    Test_Sync_Batched = fun(N) ->N1 = now(), [ ekaf:produce_sync_batched(<<"ekaf">>, ekaf_utils:itob(X)) || X <- lists:seq(1,N) ], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-
-    (node@127.0.0.1)20> Test_Sync_Batched(1000).                                                     6923.817238920162
-    (node@127.0.0.1)21> Test_Sync_Batched(10000).
-    7505.935318352987
-    (node@127.0.0.1)22> Test_Sync_Batched(100000).
-    7201.111563580955
-
-### test async batched multi requests per second ( ordered_round_robin )
-
-    Test_Async_Multi_Batched = fun(N) ->N1 = now(),  ekaf:produce_async_batched(<<"ekaf">>, [ ekaf_utils:itob(X) || X <- lists:seq(1,N)]), N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-
-    (node@127.0.0.1)25> Test_Async_Batched(1000).
-    120904.36464756377
-    (node@127.0.0.1)26> Test_Async_Batched(10000).
-    121599.76652844826
-    (node@127.0.0.1)27> Test_Async_Batched(100000).
-    136778.13628847056
+    (node@127.0.0.1)31>     Test_Async = fun(N) -> Seq = lists:seq(1,N), N1 = now(), [ ekaf:produce_async(<<"ekaf">>, ekaf_utils:itob(X)) || X <- Seq], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
+    (node@127.0.0.1)32> Test_Async(1000).
+    5030.155783924628
+    (node@127.0.0.1)33> Test_Async(10000).
+    2771.468068807792
+    (node@127.0.0.1)34> Test_Async(100000).
+    2427.0491521382896
 
 ### Tests ###
-
-    rebar compile eunit skip_deps=true
 
 The tests assume you have a topic `ekaf`. Create it as instructed on the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
 
     $ bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic ekaf
+ekaf works well with rebar.
 
     $ rebar get-deps clean compile eunit
 
@@ -332,9 +271,7 @@ The tests assume you have a topic `ekaf`. Create it as instructed on the Kafka Q
     Compiled src/ekaf_server.erl
     Compiled src/ekaf_sup.erl
     Compiled src/ekaf_protocol_produce.erl
-    Compiled src/hex.erl
     Compiled src/ekaf_utils.erl
-    Compiled src/user_default.erl
     test/ekaf_tests.erl:23:<0.485.0>: t_pick_from_new_pool ( ) = ok
     test/ekaf_tests.erl:25:<0.694.0>: t_request_metadata ( ) = ok
     test/ekaf_tests.erl:27:<0.698.0>: t_request_info ( ) = ok
@@ -360,8 +297,6 @@ The tests assume you have a topic `ekaf`. Create it as instructed on the Kafka Q
     ekaf_server            : 17%
     ekaf_sup               : 30%
     ekaf_utils             : 14%
-    hex                    :  0%
-    user_default           : not
 
     Total                  : 53%
 

@@ -41,7 +41,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 init(_Args) ->
     kickoff(),
-    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ordered_round_robin),
+    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
     StickyPartitionBatchSize = ekaf_lib:get_default(any,ekaf_sticky_partition_buffer_size, 1000),
     {ok, #state{strategy = Strategy, ctr = 0, kv = dict:new(), buffer_size = StickyPartitionBatchSize }}.
 
@@ -105,11 +105,11 @@ handle_cast({pick, Topic, Callback}, State) ->
     Worker =  ekaf_picker:pick(Topic),
     Callback(Worker),
     Next = case Worker of
-        {error,_}->
-            State;
-        _ ->
-            State#state{ worker = Worker }
-    end,
+               Pid when is_pid(Pid)->
+                   State#state{ worker = Worker };
+               _ ->
+                   State
+           end,
     {noreply, Next}.
 
 %%--------------------------------------------------------------------
@@ -119,6 +119,12 @@ handle_cast({pick, Topic, Callback}, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+handle_info({set, strategy, Value}, State)->
+    Next = State#state{ strategy = Value },
+    {noreply, Next};
+handle_info({set, buffer_size, Value}, State)->
+    Next = State#state{ buffer_size = Value },
+    {noreply, Next};
 handle_info({from, From, {pick, Topic, Callback}}, State)->
     {Reply, Next} = handle_pick({pick, Topic, Callback}, From, State),
     From ! Reply,
