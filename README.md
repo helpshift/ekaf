@@ -1,6 +1,6 @@
 # ekaf #
 
-An advanced but simple to use, Kafka client written in Erlang
+An advanced but simple to use, Kafka producer written in Erlang
 
 ### Highlights of v0.1 ###
 * A minimal implementation of a `Producer` as per 0.8 Kafka wire protocol
@@ -10,7 +10,7 @@ An advanced but simple to use, Kafka client written in Erlang
 
 ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing to ekaf via simple HTTP endpoints.
 
-Add a feature request at https://github.com/bosky101/ekaf or check the ekaf web server at https://github.com/bosky101/ekafboy
+Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/ekafboy
 
 ##Features##
 ###Simple API###
@@ -20,16 +20,19 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
     %%------------------------
     %% Start
     %%------------------------
-    application:start(ekaf),
+    application:load(ekaf),
 
-    %% ekaf needs atleast 1 broker to connect.
+    %%%% mandatory. ekaf needs atleast 1 broker to connect.
     %% To eliminate a SPOF, use an IP to a load balancer to a bunch of brokers
     application:set_env(ekaf, {ekaf_bootstrap_broker,{"localhost",9091}}),
+
+
+    application:start(ekaf),
 
     Topic = <<"ekaf">>,
 
     %%------------------------
-    %% Send data to a message
+    %% Send message to a topic
     %%------------------------
 
     %% sync
@@ -39,18 +42,18 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
     ok = ekaf:produce_async(Topic, jsx:encode(PropList) ).
 
     %%------------------------
-    %% Send in batches
+    %% Send events in batches
     %%------------------------
 
     %% send many messages in 1 packet by sending a list to represent a payload
-    {sent, Partition, _} =
+    {{sent, _OnPartition, _ByPartitionWorker}, _Response }  =
         ekaf:produce_sync(
             Topic,
             [<<"foo">>, {<<"key">>, <<"value">>}, <<"back_to_binary">> ]
-        ).
+        ),
 
     %%------------------------
-    %% Send in batches
+    %% Send events in batches
     %%------------------------
 
     %% sync
@@ -82,14 +85,32 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
 
 See `test/ekaf_tests.erl` for more
 
+### Tunable Concurrency ###
+Each worker represents a connection to a broker + topic + partition combination.
+You can decide how many workers to start for each partition
+
+    %% a single topic with 3 partitions will have 15 workers per node
+    %% all able to batch writes
+    {ekaf,[{ekaf_per_partition_workers, 5},
+           {ekaf_per_partition_workers_max, 10}]}.
+
+You can also set different concurrency strategies for different topics
+
+    {ekaf,[{ekaf_per_partition_workers, [
+       {<<"topic1">>, 5},              % lazily start a connection pool of 5 workers
+       {<<"topic2">>, 1},              % per partition
+       {ekaf_max_buffer_size, 1000}    % for remaining topics
+    ]}]}.
+
+By lazily starting a connection pool, these workers only are spawned on receipt of the first produce message received by that worker. More on this below.
+
 ### Batch writes ###
 
-You can batch async and sync calls until they reach 1000 for a partition, or 5 seconds of inactivity. Which ever comes first.
+You can batch async and sync calls until they reach 1000 for a partition, or 5 seconds of inactivity, which ever comes first.
 
-    %% default is 1
     {ekaf,[
-        {ekaf_max_buffer_size, 100},
-        {ekaf_buffer_ttl     , 5000}
+        {ekaf_max_buffer_size, 100},      %% default
+        {ekaf_buffer_ttl     , 5000}      %% default
     ]}.
 
 
@@ -109,50 +130,29 @@ You can also change the default buffer flush on inactivity from 1 second. Topic 
 
 ### Partition choosing strategy
 
-* Random Strategy ( Faster, since order not maintained among partition workers )
+#### Random Strategy ( Faster, since order not maintained among partition workers )
 
 ![ordered_round_robin](/benchmarks/n30000_c100_strategy_random.png)
 
 Will deliver to kafka ordered within the same partition worker, but produced messages can go to any random partition worker. As a result, ordering finally at the kafka broker cannot be ensured.
 
-* Ordered Round Robin
+#### Ordered Round Robin
 
 ![ordered_round_robin](/benchmarks/n30000_c100_strategy_sticky_batch.png)
 
 Will attempt to deliver to kafka in the same order than was published by sharding 1000 writes at a time to the same partition worker before switching to another worker. The same partition worker order need not be chosen when run over long durations, but whichever partition worker is picked, its writes will be in order.
 
-
-### Tunable Concurrency ###
-Each worker represents a connection to a broker + topic + partition combination.
-You can decide how many workers to start for each partition
-
-    %% a single topic with 3 partitions will have 15 workers per node
-    %% all able to batch writes
-    {ekaf,[{ekaf_per_partition_workers, 5},
-           {ekaf_per_partition_workers_max, 10}]}.
-
-You can also set different concurrency strategies for different topics
-
-
-    {ekaf,[{ekaf_per_partition_workers, [
-       {<<"topic1">>, 5},              % lazily start a connection pool of 5 workers
-       {<<"topic2">>, 1},              % per partition
-       {ekaf_max_buffer_size, 1000}    % for remaining topics
-    ]}]}.
-
-By lazily starting a connection pool, these workers only are spawned on receipt of the first produce message received by that worker. More on this below.
-
 ### No need for Zookeeper ###
 Does not need a connection to Zookeeper for broker info, etc. This adopts the pattern encouraged from the 0.8 protocol
 
-### No linked drivers, No NIF's   ###
+### No linked drivers, No NIF's, No Deps.   ###
 Deals with the protcol completely in erlang. Pattern matching FTW, see the blogpost that inspired this project ( also see https://coderwall.com/p/1lyfxg ).
 
 ### Optimized for using on a cluster ###
 * Works well if embedding into other OTP/rebar style apps ( eg: tested with `kafboy`)
-* Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_bhroker,Broker}` during the first produce to a topic, and then caches this data for that topic.
+* Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_broker,Broker}` during the first produce to a topic, and then caches this data for that topic.
 * Extensive use of records for `O(1)` lookup
-* By using binary as the preferred format for Topic, etc, - lists are avoided in all places except the {BrokerHost,_Port}.
+* By using binary as the preferred format for Topic, etc, - lists are avoided in all places except the `{BrokerHost,_Port}`.
 
 ### Concurrency when publishing to multiple topics via process groups ###
 Each Topic, will have a pg2 process group, You can pick a random partition worker for a topic via
@@ -173,17 +173,78 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
 ### State Machines ###
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
 
+### An example ekaf config
+
+    {ekaf,[
+
+        % required.
+        {ekaf_bootstrap_broker, {"localhost", 9091} },
+        % pass the {BrokerHost,Port} of atleast one permanent broker. Ideally should be
+        %       the IP of a load balancer so that any broker can be contacted
+
+
+        % optional.
+        {ekaf_bootstrap_topics, [ <<"topic">> ]},
+        % will start workers for this topic when ekaf starts
+        % a lazy and more recommended approach is to ignore this config
+
+        % optional
+        {ekaf_per_partition_workers,100},
+        % how big is the connection pool per partition
+        % eg: if the topic has 3 partitions, then with this eg: 300 workers will be started
+
+
+        % optional
+        {ekaf_max_buffer_size, [{<<"topic">>,10000},                % for specific topic
+                                {ekaf_max_buffer_size,100}]},       % for other topics
+        % how many events should the worker wait for before flushing to kafka as a batch
+
+
+        % optional
+        {ekaf_partition_strategy, random}
+        % if you are not bothered about the order, use random for speed
+        % else the default is ordered_round_robin
+
+
+    ]},
+
 ### Powering kafboy, a HTTP gateway to ekaf ###
 
-`kafboy` ( https://github.com/bosky101/kafboy ) sits on top of ekaf and is powered by `Cowboy` to send JSON posted to it directly to kafka
+`kafboy` ( https://github.com/helpshift/kafboy ) sits on top of ekaf and is powered by `Cowboy` to send JSON posted to it directly to kafka
 
-    curl -d a=apple -d b=ball http://localhost:8000/sync/topic1
-
-    POST /sync/topic_name
     POST /async/topic_name
+    POST /batch/async/topic
+    POST /safe/batch/async/topic
+    etc
 
 ### Benchmarks ###
 Running the test on a 2GB RAM vagrant VM, where the broker was local
+
+#### Random Strategy ( Faster, since order not maintained among partition workers )
+
+*With Batching*
+
+* Roughly 15,000+ async calls per second
+* Roughly 500     sync calls per second
+
+*Without Batching*
+
+* Roughly 50,000+ messages per second
+  ( based on time to send N events in 1 async batch call )
+
+### test async batched multi requests per second ( ordered_round_robin )
+
+    Test_Async_Multi_Batched = fun(N) ->N1 = now(),  ekaf:produce_async_batched(<<"ekaf">>, [ ekaf_utils:itob(X) || X <- lists:seq(1,N)]), N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
+
+    %% WITH strategy random
+    (node@127.0.0.1)4> Test_Async_Multi_Batched(1000).
+    407664.08479412965
+    (node@127.0.0.1)5> Test_Async_Multi_Batched(10000).
+    490196.07843137253
+    (node@127.0.0.1)6> Test_Async_Multi_Batched(100000).
+    522793.8101212882
+
+#### Ordered Round Robin
 
 *Without Batching*
 
@@ -198,79 +259,118 @@ Running the test on a 2GB RAM vagrant VM, where the broker was local
 
 Batching is basically sending several messages at once. The following was calculated when sending 100,0000 messages in 1 batch, where the message was just a incrementally increasing number.
 
-Try out for yourself with the following snippets
+#### test async requests per second ( ordered_round_robin )
 
-    %% test async requests per second
     Test_Async = fun(N) -> Seq = lists:seq(1,N), N1 = now(), [ ekaf:produce_async(<<"ekaf">>, ekaf_utils:itob(X)) || X <- Seq], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
 
-    %% test sync requests per second
+    (node@127.0.0.1)16> Test_Async(1000).
+    55676.18729469406
+    (node@127.0.0.1)17> Test_Async(10000).
+    24084.02434413181
+    (node@127.0.0.1)18> Test_Async(100000).
+    20446.57361431015
+
+#### test sync requests per second ( ordered_round_robin )
+
     Test_Sync = fun(N) -> N1 = now(), [ ekaf:produce_sync(<<"ekaf">>,ekaf_utils:itob(X)) || X <- lists:seq(1,N)]], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-    #Fun<erl_eval.6.80484245>
 
-    %% test batched async requests per second
+    (node@127.0.0.1)13> Test_Sync(1000).
+    542.7915116092248
+    (node@127.0.0.1)14> Test_Sync(10000).
+    635.5788524865338
+
+#### test batched async requests per second ( ordered_round_robin )
+
     Test_Async_Batched = fun(N) ->N1 = now(), [ ekaf:produce_async_batched(<<"ekaf">>, ekaf_utils:itob(X)) || X <- lists:seq(1,N)], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-    #Fun<erl_eval.6.80484245>
 
-    %% test batched sync requests per second
+    %% WITH strategy random
+    (node@127.0.0.1)9> Test_Async_Batched(1000).                                                     112246.04332697272
+    (node@127.0.0.1)10> Test_Async_Batched(10000).
+    123578.84330202668
+    (node@127.0.0.1)11> Test_Async_Batched(100000).
+    119016.16477549981
+
+#### test batched sync requests per second ( ordered_round_robin )
+
     Test_Sync_Batched = fun(N) ->N1 = now(), [ ekaf:produce_sync_batched(<<"ekaf">>, ekaf_utils:itob(X)) || X <- lists:seq(1,N) ], N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-    #Fun<erl_eval.6.80484245>
 
-    %% test async batched multi requests per second
+    (node@127.0.0.1)20> Test_Sync_Batched(1000).                                                     6923.817238920162
+    (node@127.0.0.1)21> Test_Sync_Batched(10000).
+    7505.935318352987
+    (node@127.0.0.1)22> Test_Sync_Batched(100000).
+    7201.111563580955
+
+### test async batched multi requests per second ( ordered_round_robin )
+
     Test_Async_Multi_Batched = fun(N) ->N1 = now(),  ekaf:produce_async_batched(<<"ekaf">>, [ ekaf_utils:itob(X) || X <- lists:seq(1,N)]), N2 = now(), N/(timer:now_diff(N2,N1)/1000000) end.
-    #Fun<erl_eval.6.80484245>
 
-    (node@127.0.0.1)8> Test_Async_Multi_Batched(1000).
-    77954.47458684129
-    (node@127.0.0.1)9> Test_Async_Multi_Batched(10000).
-    80857.08510208207
-    (node@127.0.0.1)10> Test_Async_Multi_Batched(100000).
-    471695.88822694233
+    (node@127.0.0.1)25> Test_Async_Batched(1000).
+    120904.36464756377
+    (node@127.0.0.1)26> Test_Async_Batched(10000).
+    121599.76652844826
+    (node@127.0.0.1)27> Test_Async_Batched(100000).
+    136778.13628847056
 
 ### Tests ###
 
     rebar compile eunit skip_deps=true
 
-The tests assume you have a topic `test`. Create it as instructed on the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
+The tests assume you have a topic `ekaf`. Create it as instructed on the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
 
-    bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic ekaf
+    $ bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic ekaf
 
-    $ rebar compile eunit skip_deps=true
+    $ rebar get-deps clean compile eunit
 
-    test/ekaf_tests.erl:24:<0.245.0>: t_pick_from_new_pool ( ) = ok
-    test/ekaf_tests.erl:26:<0.265.0>: t_request_metadata ( ) = ok
-    test/ekaf_tests.erl:29:<0.269.0>: t_publish_sync_to_topic ( ) = ok
-    test/ekaf_tests.erl:31:<0.273.0>: t_publish_sync_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:33:<0.277.0>: t_publish_sync_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:95:<0.281.0>: t_publish_many_sync_in_batch_to_topic: {buffered,1,2}
-    test/ekaf_tests.erl:35:<0.281.0>: t_publish_sync_multi_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:38:<0.285.0>: t_publish_async_to_topic ( ) = ok
-    test/ekaf_tests.erl:40:<0.289.0>: t_publish_async_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:112:<0.293.0>: t_publish_async_in_batch_to_topic: ok
-    test/ekaf_tests.erl:42:<0.293.0>: t_publish_async_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:119:<0.297.0>: t_publish_many_async_in_batch_to_topic: ok
-    test/ekaf_tests.erl:44:<0.297.0>: t_publish_async_multi_in_batch_to_topic ( ) = ok
-    All 20 tests passed.
+    ==> ekaf (eunit)
+    Compiled src/ekaf.erl
+    Compiled src/ekaf_fsm.erl
+    Compiled test/ekaf_tests.erl
+    Compiled src/ekaf_picker.erl
+    Compiled src/ekaf_protocol.erl
+    Compiled src/ekaf_lib.erl
+    Compiled src/ekaf_protocol_metadata.erl
+    Compiled src/ekaf_server.erl
+    Compiled src/ekaf_sup.erl
+    Compiled src/ekaf_protocol_produce.erl
+    Compiled src/hex.erl
+    Compiled src/ekaf_utils.erl
+    Compiled src/user_default.erl
+    test/ekaf_tests.erl:23:<0.485.0>: t_pick_from_new_pool ( ) = ok
+    test/ekaf_tests.erl:25:<0.694.0>: t_request_metadata ( ) = ok
+    test/ekaf_tests.erl:27:<0.698.0>: t_request_info ( ) = ok
+    test/ekaf_tests.erl:30:<0.702.0>: t_produce_sync_to_topic ( ) = ok
+    test/ekaf_tests.erl:32:<0.706.0>: t_produce_sync_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:34:<0.710.0>: t_produce_sync_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:36:<0.714.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:39:<0.718.0>: t_produce_async_to_topic ( ) = ok
+    test/ekaf_tests.erl:41:<0.723.0>: t_produce_async_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:43:<0.728.0>: t_produce_async_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:45:<0.732.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
+    All 22 tests passed.
     Cover analysis: /data/repos/ekaf/.eunit/index.html
 
     Code Coverage:
-    ekaf                   : 66%
-    ekaf_fsm               : 70%
-    ekaf_lib               : 34%
-    ekaf_protocol          : 70%
+    ekaf                   : 64%
+    ekaf_fsm               : 51%
+    ekaf_lib               : 60%
+    ekaf_picker            : 66%
+    ekaf_protocol          : 88%
     ekaf_protocol_metadata : 78%
-    ekaf_protocol_produce  : 50%
+    ekaf_protocol_produce  : 67%
+    ekaf_server            : 17%
     ekaf_sup               : 30%
     ekaf_utils             : 14%
-    ekafka                 :  0%
-    ekafka_app             :  0%
-    ekafka_connection      :  0%
-    ekafka_connection_sup  :  0%
-    ekafka_protocol        :  0%
-    ekafka_sup             :  0%
+    hex                    :  0%
+    user_default           : not
 
-    Total                  : 37%
+    Total                  : 53%
 
-# License
+    =INFO REPORT==== 9-Apr-2014::10:01:42 ===
+    application: ekaf
+    exited: stopped
+    type: temporary
+
+## License
 
 ```
 Copyright 2014, Helpshift, Inc.
@@ -289,6 +389,5 @@ limitations under the License.
 ```
 
 ### Goals for v0.2 ###
-* Explicit Partition choosing strategies ( eg: round robin, hash, leader under low load, etc )
 * Compression when publishing
-* Add a feature request at https://github.com/bosky101/ekaf or check the ekaf web server at https://github.com/bosky101/ekafboy
+* Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/ekafboy

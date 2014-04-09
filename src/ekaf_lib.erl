@@ -4,7 +4,10 @@
 
 -export([
          %% API
-         pick/2, pick/3, start_child/4,
+         prepare/1,
+         common_async/3,
+         common_sync/3, common_sync/4,
+         start_child/4,
 
          %% read configs per topic
          get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1, get_concurrency_opts/1, get_buffer_ttl/1, get_default/3,
@@ -28,45 +31,40 @@
          add_message_to_buffer/2, pop_messages_from_buffer/2
 ]).
 
-pick(Topic, Callback)->
-    pick(Topic, Callback, pg2).
+prepare(Topic)->
+    %% Each topic must first get metadata of the partitions
+    %% For each topic+partition combination, then starts `ekaf_partition_workers` workers
+    %% This process will bootup the partition workers, then die
+    %% Hence is not supervised
+    ekaf_fsm:start_link([
+                         self(),
+                         ekaf_lib:get_bootstrap_broker(),Topic]).
 
-pick(Topic, Callback, Strategy)->
-    case
-        pg2:get_closest_pid(Topic) of
-        {error, {no_process,_}}->
-            io:format("~n error bootstrapping",[]),
-            {error,bootstrapping};
-        {error,{no_such_group,_}}->
-            {error, no_such_group};
-        % not using poolboy for now
-        % when uncommenting this, also uncomment the start_child poolboy part
-        % PoolPid when is_pid(PoolPid), Strategy =:= poolboy ->
-        %     case erlang:is_process_alive(PoolPid) of
-        %         true ->
-        %             case Callback of
-        %                 Fun when is_function(Fun) ->
-        %                     case catch poolboy:transaction(PoolPid, Fun, 1234) of
-        %                         X ->
-        %                             X
-        %                     end;
-        %                 _ ->
-        %                     io:format("~n someone called pool/1",[]),
-        %                     Worker = poolboy:checkout(PoolPid, true, 400),
-        %                     poolboy:checkin(PoolPid,Worker),
-        %                     Worker
-        %             end;
-        %         _ ->
-        %             io:format("~n ~p leaving group since dead",[PoolPid]),
-        %             pg2:leave(Topic, PoolPid),
-        %             {error,dead_pool}
-        %     end;
-        PoolPid when is_pid(PoolPid), Strategy =:= pg2->
-            Callback(PoolPid);
-        _E ->
-            io:format("ERROR: ~p",[_E]),
-            _E
-    end.
+common_async(Event, Topic, Data)->
+    ekaf:pick(Topic, fun(Worker)->
+                             case Worker of
+                                 {error,{retry,_N}} ->
+                                     common_async(Event, Topic, Data);
+                                 {error,_}=E ->
+                                     E;
+                                 _ ->
+                                     gen_fsm:send_event(Worker, {Event, Data})
+                             end
+                     end).
+
+common_sync(Event, Topic, Data)->
+    common_sync(Event, Topic, Data, ?EKAF_SYNC_TIMEOUT).
+common_sync(Event, Topic, Data, Timeout)->
+    ekaf:pick(Topic, fun(Worker)->
+                             case Worker of
+                                 {error,{retry,_N}} ->
+                                     common_async(Event, Topic, Data);
+                                 {error,_}=E ->
+                                     E;
+                                 _ ->
+                                     gen_fsm:sync_send_event(Worker, {Event, Data}, Timeout)
+                             end
+                     end).
 
 cursor(BatchEnabled,Messages,#ekaf_fsm{ cor_id = PrevCorId, max_buffer_size = MaxBufferSize, buffer = Buffer}=State)->
     Len = length(Buffer),
@@ -99,7 +97,7 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ cor_id = PrevCorId, max_buffer_size = Ma
     {PrevCorId, ToBuffer, MessageSets, NextState}.
 
 handle_continue_when_not_ready(StateName,_Event, State)->
-    io:format("~n continue ~p since not ready when got ~p",[StateName,_Event]),
+    %io:format("~n continue ~p since not ready when got ~p",[StateName,_Event]),
     fsm_next_state(StateName, State).
 
 handle_reply_when_not_ready(_Event, _From, State)->
@@ -372,13 +370,13 @@ get_default(Topic, Key, Default)->
     case application:get_env(ekaf,Key) of
         {ok,L} when is_list(L)->
             case proplists:get_value(Topic, L) of
-                TopicAtom when is_atom(TopicAtom)->
+                TopicAtom when is_atom(TopicAtom), TopicAtom =/= undefined->
                     TopicAtom;
                 TopicMax when is_integer(TopicMax) ->
                     TopicMax;
                 _ ->
                     case proplists:get_value(Key, L) of
-                        TopicAtom when is_atom(TopicAtom)->
+                        TopicAtom when is_atom(TopicAtom), TopicAtom =/= undefined->
                             TopicAtom;
                         TopicMax when is_integer(TopicMax) ->
                             TopicMax;
@@ -386,7 +384,7 @@ get_default(Topic, Key, Default)->
                            Default
                     end
             end;
-        {ok,TopicAtom} when is_atom(TopicAtom)->
+        {ok,TopicAtom} when is_atom(TopicAtom), TopicAtom =/= undefined->
             TopicAtom;
         {ok,Max} when is_integer(Max)->
             Max;

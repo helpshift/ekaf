@@ -7,8 +7,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
--define(T_NAME, {n, l, {?MODULE, ?LINE, erlang:now()}}).
-
 pick_test_() ->
     {setup,
      fun() ->
@@ -26,23 +24,25 @@ pick_test_() ->
       , ?_test(t_is_clean())
       ,{spawn, ?_test(?debugVal(t_request_metadata()))}
       , ?_test(t_is_clean())
-
-      ,{spawn, ?_test(?debugVal(t_publish_sync_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_publish_sync_multi_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_publish_sync_in_batch_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_publish_sync_multi_in_batch_to_topic()))}
+      ,{spawn, ?_test(?debugVal(t_request_info()))}
       , ?_test(t_is_clean())
 
-      ,{spawn, ?_test(?debugVal(t_publish_async_to_topic()))}
+      ,{spawn, ?_test(?debugVal(t_produce_sync_to_topic()))}
       , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_publish_async_multi_to_topic()))}
+      ,{spawn, ?_test(?debugVal(t_produce_sync_multi_to_topic()))}
       , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_publish_async_in_batch_to_topic()))}
+      ,{spawn, ?_test(?debugVal(t_produce_sync_in_batch_to_topic()))}
       , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_publish_async_multi_in_batch_to_topic()))}
+      ,{spawn, ?_test(?debugVal(t_produce_sync_multi_in_batch_to_topic()))}
+      , ?_test(t_is_clean())
+
+      ,{spawn, ?_test(?debugVal(t_produce_async_to_topic()))}
+      , ?_test(t_is_clean())
+      ,{spawn, ?_test(?debugVal(t_produce_async_multi_to_topic()))}
+      , ?_test(t_is_clean())
+      ,{spawn, ?_test(?debugVal(t_produce_async_in_batch_to_topic()))}
+      , ?_test(t_is_clean())
+      ,{spawn, ?_test(?debugVal(t_produce_async_multi_in_batch_to_topic()))}
       , ?_test(t_is_clean())
       ]}.
 
@@ -59,7 +59,11 @@ t_request_metadata()->
     ?assertMatch(#metadata_response{}, ekaf:metadata(?TEST_TOPIC)),
     ok.
 
-t_publish_sync_to_topic()->
+t_request_info()->
+    ?assertMatch(#ekaf_fsm{}, ekaf:info(?TEST_TOPIC)),
+    ok.
+
+t_produce_sync_to_topic()->
     Response  = ekaf:produce_sync(?TEST_TOPIC, <<"sync1">>),
     ?assertMatch({{sent,_,_},
                   #produce_response{ topics = [
@@ -73,7 +77,7 @@ t_publish_sync_to_topic()->
                  Response),
     ok.
 
-t_publish_sync_multi_to_topic()->
+t_produce_sync_multi_to_topic()->
     Response  = ekaf:produce_sync(?TEST_TOPIC,[ <<"multi1">>, <<"multi2">>, <<"multi3">> ]),
     ?assertMatch({{sent,_,_},
                   #produce_response{ topics = [
@@ -87,35 +91,35 @@ t_publish_sync_multi_to_topic()->
                  Response),
     ok.
 
-t_publish_sync_in_batch_to_topic()->
+t_produce_sync_in_batch_to_topic()->
     Response  = ekaf:produce_sync_batched(?TEST_TOPIC, <<"sync in batch">>),
     ?assertMatch({buffered,_,_},
                  Response),
     ok.
 
-t_publish_sync_multi_in_batch_to_topic()->
+t_produce_sync_multi_in_batch_to_topic()->
     Response  = ekaf:produce_sync_batched(?TEST_TOPIC, [ ekaf_utils:itob(X) || X<- lists:seq(1,101)]),
     ?assertMatch({buffered,_,_},
                  Response),
     ok.
 
-t_publish_async_to_topic()->
+t_produce_async_to_topic()->
     Response  = ekaf:produce_async(?TEST_TOPIC, <<"async1">>),
     ?assertMatch(ok,Response),
     ok.
 
-t_publish_async_multi_to_topic()->
+t_produce_async_multi_to_topic()->
     Response  = ekaf:produce_async(?TEST_TOPIC,[ <<"async_multi1">>, <<"async_multi2">>, <<"async_multi3">> ]),
     ?assertMatch(ok,Response),
     ok.
 
-t_publish_async_in_batch_to_topic()->
+t_produce_async_in_batch_to_topic()->
     Response  = ekaf:produce_async_batched(?TEST_TOPIC, <<"async in batch">>),
     ?assertMatch(ok,
                  Response),
     ok.
 
-t_publish_async_multi_in_batch_to_topic()->
+t_produce_async_multi_in_batch_to_topic()->
     Response  = ekaf:produce_async_batched(?TEST_TOPIC, [ ekaf_utils:itob(X) || X<- lists:seq(1,101)] ),
     ?assertMatch(ok,Response),
 

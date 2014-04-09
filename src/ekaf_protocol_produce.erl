@@ -120,7 +120,7 @@ encode_messages([],Bin)->
     Bin;
 encode_messages([Message|Rest],Bin) ->
     encode_messages( Rest, << Bin/binary,(encode_message(Message))/binary>>);
-encode_messages(Since,Bin) ->
+encode_messages(_Since,Bin) ->
     Bin.
 encode_message(Message) when is_binary(Message)->
     encode_message(#message{ attributes = <<0:8>>, key = undefined, value = Message});
@@ -169,7 +169,7 @@ decode_to_topics(Counter, Packet, Previous) ->
     {Next,Rest} = decode_to_topic(Packet),
     decode_to_topics(Counter-1, Rest, [Next|Previous]).
 
-decode_to_topic(<<NameLen:16, Name:NameLen/binary,PartitionsBinary/binary>>=Foo)->
+decode_to_topic(<<NameLen:16, Name:NameLen/binary,PartitionsBinary/binary>>)->
     {Partitions,Rest} = decode_to_partitions(PartitionsBinary),
     {#topic{ name = Name, partitions = Partitions},
      Rest};

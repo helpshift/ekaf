@@ -41,8 +41,9 @@ start_link() ->
 %%--------------------------------------------------------------------
 init(_Args) ->
     kickoff(),
-    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ordered_round_robin),
+    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, random), %ordered_round_robin),
     StickyPartitionBatchSize = ekaf_lib:get_default(any,ekaf_sticky_partition_buffer_size, 1000),
+    io:format("~n strategy is ~p",[Strategy]),
     {ok, #state{strategy = Strategy, ctr = 0, kv = dict:new(), buffer_size = StickyPartitionBatchSize }}.
 
 kickoff()->
@@ -57,7 +58,7 @@ kickoff()->
 
 %%--------------------------------------------------------------------
 %% Function: handle_call/3
-%% Description: Handling call messages
+%% Description: Handling all synchronous call messages
 %% Returns: {reply, Reply, State}          |
 %%          {reply, Reply, State, Timeout} |
 %%          {noreply, State}               |
@@ -74,7 +75,7 @@ handle_call(_Request, _From, State) ->
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast/2
-%% Description: Handling cast messages
+%% Description: Handling all asynchronous cast messages
 %% Returns: {noreply, State}          |
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
@@ -102,9 +103,15 @@ handle_cast({pick, Topic, Callback}, #state{ strategy = ordered_round_robin, ctr
 
 %% Random strategy. Faster, but kafka gets messages in different order than that produced
 handle_cast({pick, Topic, Callback}, State) ->
-    Worker = pg2:get_closest_pid(Topic),
+    Worker =  ekaf_picker:pick(Topic),
     Callback(Worker),
-    {noreply, State#state{ worker = Worker}}.
+    Next = case Worker of
+        {error,_}->
+            State;
+        _ ->
+            State#state{ worker = Worker }
+    end,
+    {noreply, Next}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_info/2
@@ -142,13 +149,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 handle_pick({pick, Topic, _Callback}, _From, State)->
-    case pg2:get_closest_pid(Topic) of
+    case ekaf_picker:choose_a_pid(Topic) of
         {error, {no_such_group,_}} ->
-            pg2:create(Topic),
             Added = State#state{ kv = dict:append(Topic, os:timestamp(), State#state.kv) },
-            ekaf_fsm:start_link([
-                                 self(),
-                                 ekaf_lib:get_bootstrap_broker(),Topic]),
+            ekaf:prepare(Topic),
             { {error, picking},
               Added};
         Pid when is_pid(Pid)->

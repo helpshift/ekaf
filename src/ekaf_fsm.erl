@@ -202,7 +202,7 @@ handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_f
                                     ekaf_protocol:decode_produce_response(Packet)},
                            gen_fsm:reply(From,Reply);
                        _TE ->
-                           io:format("~n found yupe ~p so ignore",[_TE]),
+                           io:format("~n EKAF got ~p so ignore",[_TE]),
                            ok
                    end,
                    State#ekaf_fsm{ kv = dict:erase({cor_id,CorrelationId}, KV) };
@@ -220,7 +220,7 @@ handle_info(Info, StateName, State) ->
 %% Purpose: Shutdown the fsm
 %% Returns: any
 %%--------------------------------------------------------------------
-terminate(Reason, bootstrapping, State) ->
+terminate(_Reason, _StateName, State) ->
     %io:format("~n ~p ~p terminating since ~p",[?MODULE,self(), Reason]),
     ekaf_lib:close_socket(State#ekaf_fsm.socket),
     ok.

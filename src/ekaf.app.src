@@ -1,13 +1,12 @@
 {application, ekaf,
  [
-  {description, "Erlang Kafka client"},
-  {vsn, "git"},
-  {registered, []},
+  {description, "Erlang Kafka Producer"},
+  {vsn, {cmd, "echo `cat VERSION`"}},
+  {registered, [ekaf_server]},
   {applications, [
-                  kernel
-                  ,stdlib
-                  %,poolboy
+                  kernel,
+                  stdlib
                  ]},
-  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils]},
+  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils, ekaf_picker]},
   {mod, { ekaf, []}}
  ]}.

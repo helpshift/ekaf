@@ -60,8 +60,8 @@ btoi(B) when is_binary(B) ->
     ?MODULE:atoi(binary_to_list(B));
 btoi(I) when is_integer(I)->
     I;
-btoi(T) ->
-    btoi_error.
+btoi(_T) ->
+    error.
 itoa(N) when is_integer(N)->
     integer_to_list(N);
 itoa(S) ->
@@ -69,7 +69,7 @@ itoa(S) ->
 itob(N)->
     atob(itoa(N)).
 
-atoi(S) ->
+atoi(S) when is_list(S) ->
     case string:to_integer(S) of
     {N, _} ->
         N;

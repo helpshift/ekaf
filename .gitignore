@@ -1,4 +1,6 @@
 .eunit
+.rebar
+rebar
 .dialyzer_plt
 deps
 doc/
@@ -8,3 +10,4 @@ rel/ekafka/
 *.beam
 *.plt
 user_default.erl
+.DS_*
