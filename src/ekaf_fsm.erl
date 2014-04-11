@@ -24,7 +24,8 @@
 %% states
 -export([connected/2, connected/3,       %% Connection with the broker established
          bootstrapping/2, bootstrapping/3,  %% Asked for metadata and waiting
-         ready/2, ready/3    %% Got metadata and ready to send
+         ready/2, ready/3,    %% Got metadata and ready to send
+         fsm_next_state/2, fsm_next_state/3
          ]).
 
 %%====================================================================
@@ -35,7 +36,10 @@
 %% Description: Starts the server
 %%--------------------------------------------------------------------
 start_link(Args)->
-    gen_fsm:start_link(?MODULE,Args, []). %%{debug, [trace,statistics]}]).
+    gen_fsm:start_link(?MODULE,Args,
+                       []
+                       %[{debug, [trace,statistics]}]
+       ).
 
 %%====================================================================
 %% Server functions
@@ -66,6 +70,21 @@ init([ReplyTo, Broker, Topic]) ->
 init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
     case ekaf_lib:open_socket(Broker) of
         {ok,Socket} ->
+            PartitionPacket = #partition{
+              id = Partition,
+              leader = Leader
+              %% each messge goes in a different messageset, even for batching
+             },
+            TopicPacket = #topic{
+              name = Topic,
+              partitions =
+              [PartitionPacket]},
+            ProducePacket = #produce_request{
+              timeout=100,
+              topics= [TopicPacket]
+             },
+            Timer = gen_fsm:send_event_after(1000,<<"refresh_every_second">>),
+
             State = #ekaf_fsm{
               pool = PoolName,
               topic = Topic,
@@ -75,8 +94,13 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
               socket = Socket,
               max_buffer_size = ekaf_lib:get_max_buffer_size(Topic),
               buffer_ttl = ekaf_lib:get_buffer_ttl(Topic),
-              kv = dict:new()
+              kv = dict:new(),
+              partition_packet = PartitionPacket,
+              topic_packet = TopicPacket,
+              produce_packet = ProducePacket,
+              timer = Timer
              },
+
             gen_fsm:send_event(self(), ping),
             {ok, ready, State};
         {error, Reason} ->
@@ -126,9 +150,21 @@ ready(ping, #ekaf_fsm{ topic = Topic } = State)->
     pg2:join(Topic,self()),
     % ?INFO_MSG("~n start worker with max buffer size~p ",[State#ekaf_fsm.max_buffer_size]),
     fsm_next_state(ready,State);
-ready(timeout, State)->
-    Next = ekaf_lib:handle_inactivity_timeout(State),
-    fsm_next_state(ready,Next);
+ready(<<"refresh_every_second">>, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, timer = Timer} = PrevState)->
+    Len = length(Buffer),
+    State = ekaf_lib:handle_inactivity_timeout(PrevState),
+    Rem = Len rem MaxBufferSize,
+    ToBuffer = case Rem of
+                   0 when Len =:= 0 ->
+                       true;
+                   0 ->
+                       false;
+                   _ ->
+                       true
+               end,
+    gen_fsm:cancel_timer(Timer),
+    NextTimer = gen_fsm:send_event_after(1000,<<"refresh_every_second">>),
+    fsm_next_state(ready, State#ekaf_fsm{ to_buffer = ToBuffer, timer = NextTimer });
 ready(_Event, State)->
     fsm_next_state(ready,State).
 %%--------------------------------------------------------------------
@@ -211,6 +247,11 @@ handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_f
                    State
            end,
     fsm_next_state(ready, Next);
+handle_info({tcp_closed,Socket}, ready, State)->
+    ekaf_lib:close_socket(Socket),
+    %{stop, closed, State#ekaf_fsm{ socket = undefined }};
+    io:format("~n disconnected from broker buffer size is ~p",[length(State#ekaf_fsm.buffer)]),
+    ekaf_lib:fsm_next_state(ready, State#ekaf_fsm{ socket = undefined }, ?EKAF_SYNC_TIMEOUT);
 handle_info(Info, StateName, State) ->
     io:format("~n got info at ~p ~p state:~p",[os:timestamp(), Info, State]),
     fsm_next_state(StateName, State).
@@ -235,5 +276,8 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-fsm_next_state(StateName, StateData) ->
-    ekaf_lib:fsm_next_state(StateName, StateData).
+fsm_next_state(StateName, StateData)->
+    {next_state, StateName, StateData}.
+
+fsm_next_state(StateName, StateData, Timeout)->
+    {next_state, StateName, StateData, Timeout}.

@@ -24,7 +24,7 @@
          handle_inactivity_timeout/1,
 
          %% manipulating state
-         cursor/3, fsm_next_state/2, fsm_next_state/3,
+         cursor/3,
 
          %% helpers
          data_to_message_sets/1, data_to_message_set/1,response_to_proplist/1,
@@ -41,7 +41,15 @@ prepare(Topic)->
                          ekaf_lib:get_bootstrap_broker(),Topic]).
 
 common_async(Event, Topic, Data)->
+    %N1 = os:timestamp(),
     ekaf:pick(Topic, fun(Worker)->
+                             % N2 = os:timestamp(),
+                             % case timer:now_diff(N2, N1) of
+                             %     Took when Took > 1000000 ->
+                             %         io:format(".",[]);
+                             %     _ ->
+                             %         ok
+                             % end,
                              case Worker of
                                  {error,{retry,_N}} ->
                                      common_async(Event, Topic, Data);
@@ -65,131 +73,118 @@ common_sync(Event, Topic, Data, Timeout)->
             gen_fsm:sync_send_event(Worker, {Event, Data}, Timeout)
     end.
 
-cursor(BatchEnabled,Messages,#ekaf_fsm{ cor_id = PrevCorId, max_buffer_size = MaxBufferSize, buffer = Buffer}=State)->
-    Len = length(Buffer),
-    Rem = Len rem MaxBufferSize,
-    ToBuffer = case Rem of
-                   0 when Len =:= 0 ->
-                       true;
-                   0 ->
-                       false;
-                   _ ->
-                       true
-               end,
-    {MessageSets,NextState} =
-        case BatchEnabled of
-            true ->
-                case ToBuffer of
-                    true ->
-                        {NewMessages,NewState} = ekaf_lib:add_message_to_buffer(Messages,State),
-                        {NewMessages,NewState};
-                    _ ->
-                        {NewMessages,NewState1} = ekaf_lib:pop_messages_from_buffer(Messages,State),
-                        {ekaf_lib:data_to_message_sets(NewMessages),
-                         NewState1
-                        }
-                end;
-            _ ->
-                {ekaf_lib:data_to_message_sets(Messages), State}
-        end,
-    %io:format("~n cor_id ~p prev state is ~p, next state was ~p < ~p",[PrevCorId, length(Buffer), length(NextState#ekaf_fsm.buffer), MaxBufferSize]),
-    {PrevCorId, ToBuffer, MessageSets, NextState}.
+cursor(_,[], State)->
+    {[], State};
+cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = ToBuffer}=State)->
+    case BatchEnabled of
+        true ->
+            case ToBuffer of
+                true ->
+                    ekaf_lib:add_message_to_buffer(Messages,State);
+                _ ->
+                    ekaf_lib:pop_messages_from_buffer(Messages,State)
+            end;
+        _ ->
+            {ekaf_lib:data_to_message_sets(Messages), State}
+    end.
 
 handle_continue_when_not_ready(StateName,_Event, State)->
-    %io:format("~n continue ~p since not ready when got ~p",[StateName,_Event]),
     fsm_next_state(StateName, State).
 
 handle_reply_when_not_ready(_Event, _From, State)->
     {reply, {error, {not_ready_for,_Event}}, State}.
 
-handle_inactivity_timeout(#ekaf_fsm{cor_id = PrevCorId} = PrevState)->
+handle_inactivity_timeout(#ekaf_fsm{ buffer = []} = State)->
+    State;
+handle_inactivity_timeout(PrevState)->
     {Messages,State} = ekaf_lib:pop_messages_from_buffer([],PrevState),
-    MessageSets = ekaf_lib:data_to_message_sets(Messages),
-    CorrelationId = PrevCorId+1,
-    Topic = State#ekaf_fsm.topic, Partition=State#ekaf_fsm.partition, Leader = State#ekaf_fsm.leader, Socket=State#ekaf_fsm.socket, ClientId = State#ekaf_fsm.client_id,
+    spawn_inactivity_timeout(Messages,State),
+    State.
 
-    case length(MessageSets) of
-        0 ->
-            State;
-        _ ->
-            %io:format("~n send remaining messages ~p remaining in buffer: ~w",[length(MessageSets),length(State#ekaf_fsm.buffer)]),
-            TopicPacket = #topic{
-              name = Topic,
-              partitions =
-              [#partition{id = Partition, leader = Leader,
-                          %% each messge goes in a different messageset, even for batching
-                          message_sets_size = length(MessageSets), message_sets = MessageSets}]},
-            ProducePacket = #produce_request{
-              timeout=100, topics= [TopicPacket]
-             },
-            Request = ekaf_protocol:encode_async(CorrelationId, ClientId, ProducePacket),
-            spawn(fun()-> gen_tcp:send(Socket, Request)  end),
-            State
-    end.
+spawn_inactivity_timeout([],_)->
+    ok;
+spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId, socket = Socket, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket})->
+    spawn(
+      fun()->
+              MessageSets = ekaf_lib:data_to_message_sets(Messages),
+              case length(MessageSets) of
+                      0 ->
+                          ok;
+                      _ ->
+                          ProducePacket = DefProducePacket#produce_request{
+                                            topics= [ DefTopicPacket#topic{
+                                                        partitions =
+                                                        [DefPartitionPacket#partition{
+                                                           message_sets_size = length(MessageSets),
+                                                           message_sets = MessageSets}]
+                                                       }]
+                                           },
+                          Request = ekaf_protocol:encode_async(CorId, ClientId, ProducePacket),
+                          gen_tcp:send(Socket, Request)
+                  end
+          end).
+
 
 handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
-    {CorrelationId,ToBuffer,MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
-    Topic = State#ekaf_fsm.topic, Partition=State#ekaf_fsm.partition, Leader = State#ekaf_fsm.leader, Socket=State#ekaf_fsm.socket, ClientId = State#ekaf_fsm.client_id,
-    %io:format("~n To buffer ? ~p, ~nbatch: ~p, ~nMs:~p",[ToBuffer,BatchEnabled, MessageSets]),
-    case (BatchEnabled and ToBuffer) of
-        true ->
-            fsm_next_state(ready, State, State#ekaf_fsm.buffer_ttl);
-        _ ->
-            %io:format("~n sending async batch of ~w",[length(MessageSets)]),
-            TopicPacket = #topic{
-              name = Topic,
-              partitions =
-              [#partition{id = Partition, leader = Leader,
-                          %% each messge goes in a different messageset, even for batching
-                          message_sets_size = length(MessageSets), message_sets = MessageSets}]},
-            ProducePacket = #produce_request{
-              timeout=100, topics= [TopicPacket]
-             },
-            Request = ekaf_protocol:encode_async(CorrelationId,ClientId, ProducePacket),
-            spawn(fun()-> gen_tcp:send(Socket, Request)  end),
-            NewState = State#ekaf_fsm{cor_id = CorrelationId + 1 },
-            fsm_next_state(ready, NewState, State#ekaf_fsm.buffer_ttl)
-    end.
+    {MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
+    spawn_async_as_batch(BatchEnabled,MessageSets, State),
+    fsm_next_state(ready, State, State#ekaf_fsm.buffer_ttl).
+
+spawn_async_as_batch(_,[],_)->
+    ok;
+spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, to_buffer = ToBuffer, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket } = State)->
+    spawn(fun()->
+                  case (BatchEnabled and ToBuffer) of
+                      true ->
+                          ok;
+                      _ ->
+                          ProducePacket = DefProducePacket#produce_request{
+                                            topics= [ DefTopicPacket#topic{
+                                                        partitions =
+                                                        [DefPartitionPacket#partition{
+                                                           message_sets_size = length(MessageSets),
+                                                   message_sets = MessageSets}]
+                                                       }]
+                                           },
+                          Request = ekaf_protocol:encode_async(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
+                          gen_tcp:send(Socket, Request)
+                  end
+          end).
 
 %% if BatchEnabled, then there are bufferent and sent only when reaching max_buffer_size
-handle_sync_as_batch(BatchEnabled, {_, Messages}, From, PrevState)->
-    {CorrelationId,ToBuffer,MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
-    Topic = State#ekaf_fsm.topic, Partition=State#ekaf_fsm.partition, Leader = State#ekaf_fsm.leader, Socket=State#ekaf_fsm.socket, ClientId = State#ekaf_fsm.client_id,
-    %io:format("~n To buffer ? ~p, ~nbatch: ~p, ~nMs:~p",[ToBuffer,BatchEnabled, MessageSets]),
+handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = ToBuffer} = PrevState)->
 
+    {MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
     case (BatchEnabled and ToBuffer) of
         true ->
             BufferIndex = length(State#ekaf_fsm.buffer) rem (State#ekaf_fsm.max_buffer_size),
             Response = {buffered, State#ekaf_fsm.partition, BufferIndex },
             {reply, Response, ready, State, State#ekaf_fsm.buffer_ttl};
         _ ->
-            %io:format("~n To buffer ? ~p, ~nbatch: ~p, ~nMs:~p",[ToBuffer,BatchEnabled, MessageSets]),
-            %io:format("~n sending async batch of ~w",[length(MessageSets)]),
-            TopicPacket = #topic{
-              name = Topic,
-              partitions =
-              [#partition{id = Partition,
-                          leader = Leader,
-                          %% each messge goes in a different messageset, even for batching
-                          message_sets_size = length(MessageSets),
-                          message_sets = MessageSets}]},
-            ProducePacket = #produce_request{
-              required_acks=1,
-              timeout=100,
-              topics= [TopicPacket]
-             },
-            Request = ekaf_protocol:encode_sync(CorrelationId,ClientId, ProducePacket),
-            case gen_tcp:send(Socket, Request) of
-                ok ->
-                    NewState = State#ekaf_fsm{cor_id = CorrelationId + 1,
-                                              kv = dict:append({cor_id, CorrelationId}, {?EKAF_PACKET_DECODE_PRODUCE,From}, State#ekaf_fsm.kv )},
-                    % {reply, Response, ready, NewState};
-                    fsm_next_state(ready, NewState, State#ekaf_fsm.buffer_ttl);
-                {error, Reason} ->
-                    ?ERROR_MSG("~p",[Reason]),
-                    {stop, Reason, State}
-            end
+            spawn_sync_as_batch(MessageSets,State),
+            NextState = State#ekaf_fsm{kv = dict:append({cor_id, State#ekaf_fsm.cor_id}, {?EKAF_PACKET_DECODE_PRODUCE,From}, State#ekaf_fsm.kv )},
+            fsm_next_state(ready, NextState, NextState#ekaf_fsm.buffer_ttl)
     end.
+
+spawn_sync_as_batch([],_)->
+    ok;
+spawn_sync_as_batch(MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket} = State)->
+    spawn(fun()->
+                  %% each messge goes in a different messageset, even for batching
+                  ProducePacket = DefProducePacket#produce_request{
+                                    required_acks=1,
+                                    timeout=100,
+                                    topics= [ DefTopicPacket#topic{
+                                                partitions =
+                                                [DefPartitionPacket#partition{
+                                                   message_sets_size = length(MessageSets),
+                                                   message_sets = MessageSets}]
+                                               }]
+                                   },
+                  Request = ekaf_protocol:encode_sync(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
+                  gen_tcp:send(Socket, Request)
+          end).
+
 
 handle_connected({metadata, Topic}, State)->
     CorrelationId = State#ekaf_fsm.cor_id,
@@ -224,13 +219,13 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
                                   Leader = Partition#partition.leader,
                                   PartitionId = Partition#partition.id,
                                   {ok,[Broker]} = dict:find(Leader, BrokersDict),
-                                  ekaf_lib:start_child(Broker, CurrTopic, Leader, PartitionId )
+                                  Child = ekaf_lib:start_child(Broker, CurrTopic, Leader, PartitionId ),
+                                  Child
 
                               end
                               || Partition <- CurrTopic#topic.partitions ],
                         [TempStarted|TopicsAcc];
                     (TopicsAcc,_OtherTopic)->
-                        io:format("~n ignore ~p",[_OtherTopic]),
                         TopicsAcc
                 end, [], Metadata#metadata_response.topics),
     State#ekaf_fsm.reply_to ! {ready,Started},
@@ -257,14 +252,13 @@ handle_metadata_during_ready({metadata, Topic}, _From, State)->
     end.
 
 add_message_to_buffer(Messages,State) when is_list(Messages)->
-    {[],State#ekaf_fsm{ buffer = Messages ++ State#ekaf_fsm.buffer }};
-add_message_to_buffer(Message, State) ->
-    add_message_to_buffer([Message], State).
-
+    {[], State#ekaf_fsm{ buffer = lists:append( Messages, State#ekaf_fsm.buffer), cor_id = State#ekaf_fsm.cor_id+1}};
+add_message_to_buffer(Message,State)->
+    {[], State#ekaf_fsm{ buffer = [Message | State#ekaf_fsm.buffer], cor_id = State#ekaf_fsm.cor_id+1}}.
 pop_messages_from_buffer(Messages,State) when is_list(Messages)->
-    {Messages ++ State#ekaf_fsm.buffer, State#ekaf_fsm{ buffer = []}};
-pop_messages_from_buffer(Message, State) ->
-    pop_messages_from_buffer([Message], State).
+    {lists:append(Messages, State#ekaf_fsm.buffer), State#ekaf_fsm{ buffer = []}};
+pop_messages_from_buffer(Message,State) ->
+    {[Message| State#ekaf_fsm.buffer], State#ekaf_fsm{ buffer = []}}.
 
 response_to_proplist(#produce_response{topics = Topics})->
     ProduceJson =
@@ -277,7 +271,7 @@ response_to_proplist(#produce_response{topics = Topics})->
                                                     {error,ErrorCode}
                                             end
                                         end || PartitionRow <- TopicRow#topic.partitions ],
-                            TempAcc++TAcc
+                            [TempAcc|TAcc]
                     end, [], Topics),
     lists:reverse(ProduceJson);
 response_to_proplist(_) ->
@@ -412,8 +406,7 @@ close_socket(undefined)->
 close_socket(Socket) ->
     gen_tcp:close(Socket).
 
-fsm_next_state(StateName, StateData)->
-    {next_state, StateName, StateData}.
-
-fsm_next_state(StateName, StateData, Timeout)->
-    {next_state, StateName, StateData, Timeout}.
+fsm_next_state(StateName,State)->
+    ekaf_fsm:fsm_next_state(StateName, State).
+fsm_next_state(StateName,State, Timeout)->
+    ekaf_fsm:fsm_next_state(StateName, State, Timeout).

@@ -102,7 +102,7 @@ handle_cast({pick, Topic, Callback}, #state{ strategy = ordered_round_robin, ctr
 
 %% Random strategy. Faster, but kafka gets messages in different order than that produced
 handle_cast({pick, Topic, Callback}, State) ->
-    Worker =  ekaf_picker:pick(Topic),
+    Worker =  ekaf_picker:pick(Topic,undefined,sync,State#state.strategy),
     Callback(Worker),
     Next = case Worker of
                Pid when is_pid(Pid)->
@@ -155,6 +155,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 handle_pick({pick, Topic, _Callback}, _From, State)->
     case pg2:get_closest_pid(Topic) of
+%ekaf_picker:pick(Topic,undefined,sync, State#state.strategy) of
         {error, {no_such_group,_}} ->
             Added = State#state{ kv = dict:append(Topic, os:timestamp(), State#state.kv) },
             ekaf:prepare(Topic),
