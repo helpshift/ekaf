@@ -14,6 +14,7 @@ pick_test_() ->
              application:load(ekaf),
              %% after 100ms of inactivity, send remaining messages in buffer
              application:set_env(ekaf, ekaf_sticky_partition_buffer_size, 100),
+             application:set_env(ekaf, ekaf_buffer_ttl, 200),
              application:start(ekaf)
      end,
      fun(_) ->
@@ -60,7 +61,6 @@ t_request_metadata()->
     ok.
 
 t_request_info()->
-    ?debugFmt("info is ~p",[ekaf:info(?TEST_TOPIC)]),
     ?assertMatch(#ekaf_fsm{}, ekaf:info(?TEST_TOPIC)),
     ok.
 
@@ -125,7 +125,7 @@ t_produce_async_multi_in_batch_to_topic()->
     ?assertMatch(ok,Response),
 
     %% to give time for all batches to flush
-    timer:sleep(3000),
+    timer:sleep(1000),
     ok.
 
 t_is_clean()->

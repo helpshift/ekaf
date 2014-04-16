@@ -57,8 +57,8 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
     %%------------------------
 
     %% sync
-    {buffered, _Partition, _BufferIndex} =
-        ekaf:produce_sync_batched(
+    {buffered, _Partition, _BufferSize} =
+        ekaf:produce_async_batched(
             Topic,
             [ekaf_utils:itob(X) || X<- lists:seq(1,1000) ]
         ).

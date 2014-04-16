@@ -149,8 +149,7 @@ handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = T
     {MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
     case (BatchEnabled and ToBuffer) of
         true ->
-            % BufferIndex = length(State#ekaf_fsm.buffer) rem (State#ekaf_fsm.max_buffer_size),
-            Response = {buffered, State#ekaf_fsm.partition },
+            Response = {buffered, State#ekaf_fsm.partition, length(State#ekaf_fsm.buffer) },
             {reply, Response, ready, State, State#ekaf_fsm.buffer_ttl};
         _ ->
             spawn_sync_as_batch(MessageSets,State),
