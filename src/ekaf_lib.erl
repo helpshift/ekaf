@@ -41,15 +41,7 @@ prepare(Topic)->
                          ekaf_lib:get_bootstrap_broker(),Topic]).
 
 common_async(Event, Topic, Data)->
-    %N1 = os:timestamp(),
     ekaf:pick(Topic, fun(Worker)->
-                             % N2 = os:timestamp(),
-                             % case timer:now_diff(N2, N1) of
-                             %     Took when Took > 1000000 ->
-                             %         io:format(".",[]);
-                             %     _ ->
-                             %         ok
-                             % end,
                              case Worker of
                                  {error,{retry,_N}} ->
                                      common_async(Event, Topic, Data);
@@ -78,6 +70,7 @@ cursor(_,[], State)->
 cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = ToBuffer}=State)->
     case BatchEnabled of
         true ->
+            % ekaf_lib:add_message_to_buffer(Messages,State);
             case ToBuffer of
                 true ->
                     ekaf_lib:add_message_to_buffer(Messages,State);
@@ -85,7 +78,7 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = ToBuffer}=State)->
                     ekaf_lib:pop_messages_from_buffer(Messages,State)
             end;
         _ ->
-            {ekaf_lib:data_to_message_sets(Messages), State}
+            {ekaf_lib:data_to_message_sets(Messages), State#ekaf_fsm{ cor_id =  State#ekaf_fsm.cor_id+1}}
     end.
 
 handle_continue_when_not_ready(StateName,_Event, State)->
@@ -153,16 +146,15 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, clien
 
 %% if BatchEnabled, then there are bufferent and sent only when reaching max_buffer_size
 handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = ToBuffer} = PrevState)->
-
     {MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
     case (BatchEnabled and ToBuffer) of
         true ->
-            BufferIndex = length(State#ekaf_fsm.buffer) rem (State#ekaf_fsm.max_buffer_size),
-            Response = {buffered, State#ekaf_fsm.partition, BufferIndex },
+            % BufferIndex = length(State#ekaf_fsm.buffer) rem (State#ekaf_fsm.max_buffer_size),
+            Response = {buffered, State#ekaf_fsm.partition },
             {reply, Response, ready, State, State#ekaf_fsm.buffer_ttl};
         _ ->
             spawn_sync_as_batch(MessageSets,State),
-            NextState = State#ekaf_fsm{kv = dict:append({cor_id, State#ekaf_fsm.cor_id}, {?EKAF_PACKET_DECODE_PRODUCE,From}, State#ekaf_fsm.kv )},
+            NextState = State#ekaf_fsm{kv = dict:append({cor_id, State#ekaf_fsm.cor_id}, {?EKAF_PACKET_DECODE_PRODUCE,From}, State#ekaf_fsm.kv ) },
             fsm_next_state(ready, NextState, NextState#ekaf_fsm.buffer_ttl)
     end.
 
@@ -252,13 +244,13 @@ handle_metadata_during_ready({metadata, Topic}, _From, State)->
     end.
 
 add_message_to_buffer(Messages,State) when is_list(Messages)->
-    {[], State#ekaf_fsm{ buffer = lists:append( Messages, State#ekaf_fsm.buffer), cor_id = State#ekaf_fsm.cor_id+1}};
+    {[], State#ekaf_fsm{ buffer = Messages ++ State#ekaf_fsm.buffer, cor_id = State#ekaf_fsm.cor_id+1}};
 add_message_to_buffer(Message,State)->
     {[], State#ekaf_fsm{ buffer = [Message | State#ekaf_fsm.buffer], cor_id = State#ekaf_fsm.cor_id+1}}.
-pop_messages_from_buffer(Messages,State) when is_list(Messages)->
-    {lists:append(Messages, State#ekaf_fsm.buffer), State#ekaf_fsm{ buffer = []}};
-pop_messages_from_buffer(Message,State) ->
-    {[Message| State#ekaf_fsm.buffer], State#ekaf_fsm{ buffer = []}}.
+pop_messages_from_buffer(Messages,#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = State) when is_list(Messages)->
+    {Messages++Buffer, State#ekaf_fsm{ buffer = [], cor_id = CorId+1}};
+pop_messages_from_buffer(Message,#ekaf_fsm{ buffer= Buffer, cor_id = CorId }=State) ->
+    {[Message|Buffer], State#ekaf_fsm{ buffer = [], cor_id = CorId+1}}.
 
 response_to_proplist(#produce_response{topics = Topics})->
     ProduceJson =
@@ -399,7 +391,7 @@ open_socket({Host,Port}) when is_binary(Host)->
     open_socket({ ekaf_utils:btoa(Host),Port});
 
 open_socket({Host,Port})->
-    gen_tcp:connect(Host, Port, [{packet, 4}, binary]).
+    gen_tcp:connect(Host, Port, [binary, {packet, 4}]).
 
 close_socket(undefined)->
     ok;

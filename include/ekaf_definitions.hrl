@@ -7,7 +7,7 @@
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX   , 100).
 -define(EKAF_DEFAULT_BUFFER_TTL                  , 5000).
 -define(EKAF_DEFAULT_PARTITION_STRATEGY          , ordered_round_robin).
--define(EKAF_SYNC_TIMEOUT                        , 200).
+-define(EKAF_SYNC_TIMEOUT                        , 1000).
 
 -define(EKAF_PACKET_IGNORE                       , 0).
 -define(EKAF_PACKET_ENCODE_METADATA              , 1).
@@ -70,7 +70,7 @@
 %% Records
 %%======================================================================
 %% Used by workers
--record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = false::boolean(), topic_packet, partition_packet, produce_packet, timer }).
+-record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = false::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, timer }).
 
 
 %% Requests

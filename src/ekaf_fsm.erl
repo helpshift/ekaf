@@ -83,8 +83,8 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
               timeout=100,
               topics= [TopicPacket]
              },
-            Timer = gen_fsm:send_event_after(1000,<<"refresh_every_second">>),
-
+            BufferTTL = ekaf_lib:get_buffer_ttl(Topic),
+            Timer = gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
             State = #ekaf_fsm{
               pool = PoolName,
               topic = Topic,
@@ -93,7 +93,7 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
               partition = Partition,
               socket = Socket,
               max_buffer_size = ekaf_lib:get_max_buffer_size(Topic),
-              buffer_ttl = ekaf_lib:get_buffer_ttl(Topic),
+              buffer_ttl = BufferTTL,
               kv = dict:new(),
               partition_packet = PartitionPacket,
               topic_packet = TopicPacket,
@@ -150,10 +150,24 @@ ready(ping, #ekaf_fsm{ topic = Topic } = State)->
     pg2:join(Topic,self()),
     % ?INFO_MSG("~n start worker with max buffer size~p ",[State#ekaf_fsm.max_buffer_size]),
     fsm_next_state(ready,State);
-ready(<<"refresh_every_second">>, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, timer = Timer} = PrevState)->
+ready(timeout, #ekaf_fsm{ timer = Timer, buffer_ttl = BufferTTL } = State)->
+    gen_fsm:cancel_timer(Timer),
+    NextTimer = gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
+    fsm_next_state(ready, State#ekaf_fsm{ timer = NextTimer });
+ready({timeout, Timer, <<"refresh_every_second">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, last_known_size = LastKnownSize, cor_id = PrevCorId} = PrevState)->
     Len = length(Buffer),
-    State = ekaf_lib:handle_inactivity_timeout(PrevState),
+
+    %% if no activity for BufferTTL ms, then flush
+    State = case Len of
+                0 ->
+                    PrevState;
+                LastKnownSize ->
+                    ekaf_lib:handle_inactivity_timeout(PrevState);
+                _ ->
+                    PrevState
+            end,
     Rem = Len rem MaxBufferSize,
+    %% if no activity for BufferTTL ms, then flush
     ToBuffer = case Rem of
                    0 when Len =:= 0 ->
                        true;
@@ -162,9 +176,10 @@ ready(<<"refresh_every_second">>, #ekaf_fsm{ buffer = Buffer, max_buffer_size = 
                    _ ->
                        true
                end,
+    CorId = case PrevCorId of Big when Big > 2000000000 -> 0;_ -> PrevCorId end,
     gen_fsm:cancel_timer(Timer),
-    NextTimer = gen_fsm:send_event_after(1000,<<"refresh_every_second">>),
-    fsm_next_state(ready, State#ekaf_fsm{ to_buffer = ToBuffer, timer = NextTimer });
+    gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
+    fsm_next_state(ready, State#ekaf_fsm{ to_buffer = ToBuffer, last_known_size = Len, cor_id = CorId });
 ready(_Event, State)->
     fsm_next_state(ready,State).
 %%--------------------------------------------------------------------
@@ -231,7 +246,7 @@ handle_sync_event(Event, _From, StateName, State) ->
 handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_fsm{ kv = KV } = State) ->
     Found = dict:find({cor_id,CorrelationId}, KV),
     Next = case Found of
-               {ok,[{Type,From}]}->
+               {ok,[{Type,From}|_Rest]}->
                    case Type of
                        ?EKAF_PACKET_DECODE_PRODUCE ->
                            Reply = {{sent, State#ekaf_fsm.partition, self()},
@@ -248,9 +263,11 @@ handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_f
            end,
     fsm_next_state(ready, Next);
 handle_info({tcp_closed,Socket}, ready, State)->
-    ekaf_lib:close_socket(Socket),
-    %{stop, closed, State#ekaf_fsm{ socket = undefined }};
-    io:format("~n disconnected from broker buffer size is ~p",[length(State#ekaf_fsm.buffer)]),
+    spawn(fun()->
+                  ekaf_lib:close_socket(Socket),
+                  %{stop, closed, State#ekaf_fsm{ socket = undefined }};
+                  io:format("~n disconnected from broker buffer size is ~p",[length(State#ekaf_fsm.buffer)])
+          end),
     ekaf_lib:fsm_next_state(ready, State#ekaf_fsm{ socket = undefined }, ?EKAF_SYNC_TIMEOUT);
 handle_info(Info, StateName, State) ->
     io:format("~n got info at ~p ~p state:~p",[os:timestamp(), Info, State]),
@@ -262,8 +279,10 @@ handle_info(Info, StateName, State) ->
 %% Returns: any
 %%--------------------------------------------------------------------
 terminate(_Reason, _StateName, State) ->
-    %io:format("~n ~p ~p terminating since ~p",[?MODULE,self(), Reason]),
-    ekaf_lib:close_socket(State#ekaf_fsm.socket),
+    spawn(fun()->
+                  %io:format("~n ~p ~p terminating since ~p",[?MODULE,self(), _Reason]),
+                  ekaf_lib:close_socket(State#ekaf_fsm.socket)
+          end),
     ok.
 %%--------------------------------------------------------------------
 %% Func: code_change/4

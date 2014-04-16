@@ -17,6 +17,7 @@
      btoatom/1,
      btoatob/2,
      atobtoa/2,
+     to_lower/1,
      hex/1,
      encode/1,
      decode/1,
@@ -78,6 +79,11 @@ atoi(S) when is_list(S) ->
     end;
 atoi(_) ->
     error.
+
+to_lower(Bin) when is_binary(Bin)->
+    to_lower(binary_to_list(Bin));
+to_lower(Str)->
+    string:to_lower(Str).
 
 hex(N) when is_integer(N)->
     hex(<<N/big>>);

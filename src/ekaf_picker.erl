@@ -28,8 +28,8 @@ pick(Topic, Callback, Mode, Strategy) ->
     end.
 
 pick_async(Topic,Callback)->
-    Worker = pg2:get_closest_pid(Topic),%gen_server:cast(ekaf_server, {pick, Topic, Callback}).
-    Callback(Worker).
+    %Worker = pg2:get_closest_pid(Topic),Callback(Worker)
+    gen_server:cast(ekaf_server, {pick, Topic, Callback}).
 
 pick_sync(Topic, Callback, Strategy)->
     pick_sync(Topic, Callback, Strategy, 0).
@@ -50,7 +50,7 @@ pick_sync(Topic, Callback, _Strategy, Attempt)->
                     X ->
                         X,
                         {error, {retry, Attempt+1}}
-                after 100 ->
+                after 5000 ->
                         io:format("~n into timeout",[]),
                         {error,timeout}
                 end;
@@ -82,5 +82,5 @@ pick_sync(Topic, Callback, _Strategy, Attempt)->
         end,
     case Callback of
         undefined -> R;
-        _ -> Callback(R)
+        _ -> spawn(fun()-> Callback(R) end)
     end.

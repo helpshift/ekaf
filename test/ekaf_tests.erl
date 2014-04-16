@@ -60,6 +60,7 @@ t_request_metadata()->
     ok.
 
 t_request_info()->
+    ?debugFmt("info is ~p",[ekaf:info(?TEST_TOPIC)]),
     ?assertMatch(#ekaf_fsm{}, ekaf:info(?TEST_TOPIC)),
     ok.
 
