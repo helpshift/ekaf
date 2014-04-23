@@ -132,13 +132,13 @@ You can also change the default buffer flush on inactivity from 1 second. Topic 
 
 #### Random Strategy ( Faster, since order not maintained among partition workers )
 
-![ordered_round_robin](/benchmarks/n30000_c100_strategy_random.png)
+![screenshot-strategy-random](/benchmarks/n30000_c100_strategy_random.png)
 
 Will deliver to kafka ordered within the same partition worker, but produced messages can go to any random partition worker. As a result, ordering finally at the kafka broker cannot be ensured.
 
 #### Ordered Round Robin
 
-![ordered_round_robin](/benchmarks/n30000_c100_strategy_sticky_batch.png)
+![screenshot-strategy-ordered_round_robin](/benchmarks/n30000_c100_strategy_sticky_batch.png)
 
 Will attempt to deliver to kafka in the same order than was published by sharding 1000 writes at a time to the same partition worker before switching to another worker. The same partition worker order need not be chosen when run over long durations, but whichever partition worker is picked, its writes will be in order.
 
@@ -169,6 +169,41 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
     end).
 
     %% pick/1 and pick/2 also exist for synchronously choosing a worker
+
+### Instrumentable
+
+Current callbacks include when the buffer is flushed.
+
+    {ekaf,[
+        {ekaf_callback_flush, {mystats, callback_flush}}
+        %% where the callback is fun mystats:callback_flush/5
+    ]}.
+
+    %% mystats.erl
+    callback_flush(Topic, PartitionId, BufferLength, From, CorId)->
+        spawn(fun()->
+                  %io:format("~n flush partition ~p when size was ~p corid ~p",[PartitionId, Len, CorId]),
+                  % eg:          flush partition 0, when size was 5025 corid 8899
+
+                  % histogram gives rates/sec
+                  statman_histogram:record_value({<<"/ekaf.",Topic/binary>>,<<"partition.", (ekaf_utils:itob(PartitionId))/binary,".flushed">>}, CorId),
+
+                  % gauges for values
+                  statman_gauge:set({<<"ekaf.",Topic/binary>>,<<"partition.", (ekaf_utils:itob(PartitionId))/binary,".batch.size">>}, Len),
+                  statman_gauge:set({<<"ekaf.",Topic/binary>>,<<"partition.", (ekaf_utils:itob(PartitionId))/binary,".sent">>}, CorId)
+        end).
+
+Here is an example of instrumenting ekaf with the included `ekaf_stats` module and `statman` ( https://github.com/knutin/statman_elli )...
+
+    {ok, _} = statman_poller_sup:add_gauge(fun()-> ekaf_lib:instrument_topics(<<"events">>) end, 5000),
+    {ok, _} = statman_poller_sup:add_gauge(fun()-> ekaf_lib:get_info(<<"events">>, <<"buffer.size">>) end, 5000),
+    {ok, _} = statman_poller_sup:add_gauge(fun()-> ekaf_lib:get_info(<<"events">>, <<"buffer.max">>) end, 5000),
+    {ok, _} = statman_poller_sup:add_gauge( fun statman_vm_metrics:get_gauges/0),
+    ok.
+
+...will generate gauges on statman like this
+
+![screenshot-instrumentable](/benchmarks/screenshot-ekaf-instrumentable-eg-statman.png)
 
 ### State Machines ###
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
@@ -207,9 +242,9 @@ Choosing a worker is done by a worker of `ekaf_server` for every topic. It looks
         % if you are not bothered about the order, use random for speed
         % else the default is ordered_round_robin
 
-    % optional
-    {ekaf_callback_flush, {mystats,callback_flush}}
-    % can be used for instrumentating how how batches are sent & hygeine
+        % optional
+        {ekaf_callback_flush, {mystats,callback_flush}}
+        % can be used for instrumentating how how batches are sent & hygeine
 
     ]},
 
@@ -273,6 +308,7 @@ ekaf works well with rebar.
     Compiled src/ekaf_lib.erl
     Compiled src/ekaf_protocol_metadata.erl
     Compiled src/ekaf_server.erl
+    Compiled src/ekaf_stats.erl
     Compiled src/ekaf_sup.erl
     Compiled src/ekaf_protocol_produce.erl
     Compiled src/ekaf_utils.erl
@@ -300,6 +336,7 @@ ekaf works well with rebar.
     ekaf_protocol_metadata : 78%
     ekaf_protocol_produce  : 67%
     ekaf_server            : 36%
+    ekaf_stats             :  0%
     ekaf_sup               : 30%
     ekaf_utils             : 13%
 
@@ -310,7 +347,8 @@ ekaf works well with rebar.
     exited: stopped
     type: temporary
 
-    ![ordered_round_robin](/benchmarks/screenshot-eunit-kafka-consumer.png)
+
+![screenshot-eunit-kafka-consumer](/benchmarks/screenshot-eunit-kafka-consumer.png)
 
 ## License
 

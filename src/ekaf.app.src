@@ -7,6 +7,6 @@
                   kernel,
                   stdlib
                  ]},
-  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils, ekaf_picker]},
+  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils, ekaf_picker, ekaf_stats]},
   {mod, { ekaf, []}}
  ]}.

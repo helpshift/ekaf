@@ -96,7 +96,7 @@ flush(#ekaf_fsm{ buffer = []} = State)->
 flush(PrevState)->
     {Messages,State} = ekaf_lib:pop_messages_from_buffer([],PrevState),
     spawn_inactivity_timeout(Messages,State),
-    pop_messages_callback(State),
+    flush_messages_callback(State),
     State#ekaf_fsm{ last_known_size = 0 }.
 
 spawn_inactivity_timeout([],_)->
@@ -263,7 +263,8 @@ pop_messages_from_buffer(Messages,#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = 
 pop_messages_from_buffer(Message,#ekaf_fsm{ buffer= Buffer, cor_id = CorId }=State) ->
     {[Message|Buffer], State#ekaf_fsm{ buffer = [], cor_id = CorId+1}}.
 
-pop_messages_callback(State)->
+flush_messages_callback(State)->
+    Self = self(),
     spawn(fun()->
                   FlushCallback = State#ekaf_fsm.flush_callback,
                   case catch FlushCallback of
@@ -272,7 +273,7 @@ pop_messages_callback(State)->
                           Topic = State#ekaf_fsm.topic,
                           PartitionId = State#ekaf_fsm.partition,
                           CorId = State#ekaf_fsm.cor_id,
-                          FlushCallbackModule:FlushCallbackFunction(Topic, PartitionId, Len, undefined, CorId);
+                          FlushCallbackModule:FlushCallbackFunction(Topic, PartitionId, Len, Self, CorId);
                       undefined ->
                           ok
                   end
