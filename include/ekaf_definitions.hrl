@@ -19,6 +19,8 @@
 -define(PRODUCE_REQUEST                          , 0).
 -define(METADATA_REQUEST                         , 3).
 
+-define(EKAF_CONSTANT_REFRESH_EVERY_SEC          , <<"refresh_every_second">>).
+
 %%======================================================================
 %% Macros
 %%======================================================================

@@ -148,7 +148,7 @@ ready({produce_async_batched, _Messages}= Async, PrevState)->
     ekaf_lib:handle_async_as_batch(true, Async, PrevState);
 ready(ping, #ekaf_fsm{ topic = Topic } = State)->
     pg2:join(Topic,self()),
-    % ?INFO_MSG("~n start worker with max buffer size~p ",[State#ekaf_fsm.max_buffer_size]),
+    gen_server:cast(erlang:whereis(ekaf_lib:get_topic_as_atom(Topic)), {set,worker,self()}),
     fsm_next_state(ready,State);
 ready({timeout, Timer, <<"refresh_every_second">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
     Len = length(Buffer),

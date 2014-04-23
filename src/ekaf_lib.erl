@@ -131,10 +131,12 @@ handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
 spawn_async_as_batch(_,[],_)->
     ok;
 spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, to_buffer = ToBuffer, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket } = State)->
-    spawn(fun()->
+    %spawn(fun()->
                   case (BatchEnabled and ToBuffer) of
                       true ->
-                          ok;
+                          Response = {buffered, State#ekaf_fsm.partition, length(State#ekaf_fsm.buffer) },
+                          {reply, Response, ready, State, State#ekaf_fsm.buffer_ttl};
+
                       _ ->
                           ProducePacket = DefProducePacket#produce_request{
                                             topics= [ DefTopicPacket#topic{
@@ -146,8 +148,8 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, clien
                                            },
                           Request = ekaf_protocol:encode_async(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
                           gen_tcp:send(Socket, Request)
-                  end
-          end).
+                  end.
+     %     end).
 
 %% if BatchEnabled, then there are bufferent and sent only when reaching max_buffer_size
 handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = ToBuffer} = PrevState)->
@@ -215,7 +217,6 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
                                              {RegName, {ekaf_server, start_link, [{local,RegName}, [Topic]]},
                                               permanent, infinity, worker, [RegName]}
                                             ),
-
                         TempStarted =
                             [ begin
                                   Leader = Partition#partition.leader,

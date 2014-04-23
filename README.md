@@ -10,7 +10,7 @@ An advanced but simple to use, Kafka producer written in Erlang
 
 ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing to ekaf via simple HTTP endpoints.
 
-Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/ekafboy
+Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/kafboy
 
 ##Features##
 ###Simple API###
@@ -173,6 +173,8 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
 ### State Machines ###
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
 
+Choosing a worker is done by a worker of `ekaf_server` for every topic. It looks at the strategy and decides how often to choose a worker and is used internally by `ekaf:pick`
+
 ### An example ekaf config
 
     {ekaf,[
@@ -201,10 +203,13 @@ Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen
 
 
         % optional
-        {ekaf_partition_strategy, random}
+        {ekaf_partition_strategy, random},
         % if you are not bothered about the order, use random for speed
         % else the default is ordered_round_robin
 
+    % optional
+    {ekaf_callback_flush, {mystats,callback_flush}}
+    % can be used for instrumentating how how batches are sent & hygeine
 
     ]},
 
@@ -263,7 +268,6 @@ ekaf works well with rebar.
     ==> ekaf (eunit)
     Compiled src/ekaf.erl
     Compiled src/ekaf_fsm.erl
-    Compiled test/ekaf_tests.erl
     Compiled src/ekaf_picker.erl
     Compiled src/ekaf_protocol.erl
     Compiled src/ekaf_lib.erl
@@ -272,6 +276,7 @@ ekaf works well with rebar.
     Compiled src/ekaf_sup.erl
     Compiled src/ekaf_protocol_produce.erl
     Compiled src/ekaf_utils.erl
+    Compiled test/ekaf_tests.erl
     test/ekaf_tests.erl:23:<0.485.0>: t_pick_from_new_pool ( ) = ok
     test/ekaf_tests.erl:25:<0.694.0>: t_request_metadata ( ) = ok
     test/ekaf_tests.erl:27:<0.698.0>: t_request_info ( ) = ok
@@ -288,15 +293,15 @@ ekaf works well with rebar.
 
     Code Coverage:
     ekaf                   : 64%
-    ekaf_fsm               : 51%
-    ekaf_lib               : 60%
-    ekaf_picker            : 66%
+    ekaf_fsm               : 60%
+    ekaf_lib               : 64%
+    ekaf_picker            : 55%
     ekaf_protocol          : 88%
     ekaf_protocol_metadata : 78%
     ekaf_protocol_produce  : 67%
-    ekaf_server            : 17%
+    ekaf_server            : 36%
     ekaf_sup               : 30%
-    ekaf_utils             : 14%
+    ekaf_utils             : 13%
 
     Total                  : 53%
 
@@ -304,6 +309,8 @@ ekaf works well with rebar.
     application: ekaf
     exited: stopped
     type: temporary
+
+    ![ordered_round_robin](/benchmarks/screenshot-eunit-kafka-consumer.png)
 
 ## License
 
@@ -325,4 +332,4 @@ limitations under the License.
 
 ### Goals for v0.2 ###
 * Compression when publishing
-* Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/ekafboy
+* Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/kafboy

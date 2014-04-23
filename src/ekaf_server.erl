@@ -14,7 +14,7 @@
 -export([init/1, kickoff/0,
          handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {kv, strategy, buffer_size, ctr, worker, topic}).
+-record(state, {kv, strategy, max_buffer_size, ctr, worker, topic}).
 -define(SERVER, ?MODULE).
 
 %%====================================================================
@@ -48,7 +48,6 @@ start_link(Name,Args) ->
 %%--------------------------------------------------------------------
 init([Topic])->
     State = generic_init(),
-    erlang:send_after(1000, self(), <<"refresh_every_second">>),
     {ok, State#state{topic = Topic}};
 init(_Args) ->
     State = generic_init(),
@@ -58,7 +57,7 @@ generic_init()->
     kickoff(),
     Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
     StickyPartitionBatchSize = ekaf_lib:get_default(any,ekaf_sticky_partition_buffer_size, 1000),
-    #state{strategy = Strategy, ctr = 0, kv = dict:new(), buffer_size = StickyPartitionBatchSize}.
+    #state{strategy = Strategy, ctr = 0, kv = dict:new(), max_buffer_size = StickyPartitionBatchSize}.
 
 kickoff()->
     case ekaf_lib:get_bootstrap_topics() of
@@ -94,6 +93,11 @@ handle_call(_Request, _From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+handle_cast({set, worker, Worker}, #state{ worker = undefined } = State) ->
+    erlang:send_after(1000, self(), ?EKAF_CONSTANT_REFRESH_EVERY_SEC),
+    {noreply, State#state{ worker = Worker}};
+handle_cast({set, _, _}, State) ->
+    {noreply, State};
 handle_cast({pick, _Topic, Callback}, #state{ strategy = ordered_round_robin, worker = Worker, ctr = Ctr } = State) ->
     Callback(Worker),
     {noreply, State#state{ ctr = Ctr + 1}};
@@ -111,10 +115,11 @@ handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
 
-handle_info(<<"refresh_every_second">>=TimeoutKey,
+handle_info(<<"refresh_every_second">> = TimeoutKey,
             #state{
               strategy = Strategy,
-              buffer_size = Max, worker = OldWorker, ctr = Ctr, topic = Topic} = State) ->
+              max_buffer_size = Max, ctr = Ctr, topic = Topic} = State) ->
+
     erlang:send_after(1000, self(), TimeoutKey),
     ToPick = case Strategy of
                  random ->
@@ -139,9 +144,11 @@ handle_info(<<"refresh_every_second">>=TimeoutKey,
 handle_info({set, strategy, Value}, State)->
     Next = State#state{ strategy = Value },
     {noreply, Next};
-handle_info({set, buffer_size, Value}, State)->
-    Next = State#state{ buffer_size = Value },
+handle_info({set, max_buffer_size, Value}, State)->
+    Next = State#state{ max_buffer_size = Value },
     {noreply, Next};
+handle_info({set,_,_}, State)->
+    {noreply, State};
 handle_info({from, From, {pick, Topic, Callback}}, State)->
     {Reply, Next} = handle_pick({pick, Topic, Callback}, From, State),
     From ! Reply,
@@ -155,8 +162,7 @@ handle_info(_Info, State) ->
 %% Description: Shutdown the server
 %% Returns: any (ignored by gen_server)
 %%--------------------------------------------------------------------
-terminate(Reason, State) ->
-    io:format("~n ~p terminating since ~p with state ~p",[?MODULE,Reason,State]),
+terminate(_Reason, _State) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -187,9 +193,9 @@ handle_pick({pick, Topic, _Callback}, _From, #state{ kv = PrevKV } = State)->
             %           end,
             % Next = State#state{ kv = dict:append(Topic, NextInt, PrevKV) },
             %{Pid,Next};
-            {Pid,State};
+            {Pid,State#state{ worker = Pid}};
         _ ->
-            {error, bootstrapping}
+            {{error, bootstrapping}, State}
     end;
 handle_pick(Pick, _From, State) ->
     Error = {error, {handle_pick_error,Pick}},
