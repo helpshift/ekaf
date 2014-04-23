@@ -84,7 +84,7 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
               topics= [TopicPacket]
              },
             BufferTTL = ekaf_lib:get_buffer_ttl(Topic),
-            Timer = gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
+            gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
             State = #ekaf_fsm{
               pool = PoolName,
               topic = Topic,
@@ -98,7 +98,7 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
               partition_packet = PartitionPacket,
               topic_packet = TopicPacket,
               produce_packet = ProducePacket,
-              timer = Timer
+              flush_callback = ekaf_lib:get_callbacks(flush)
              },
 
             gen_fsm:send_event(self(), ping),
@@ -150,36 +150,32 @@ ready(ping, #ekaf_fsm{ topic = Topic } = State)->
     pg2:join(Topic,self()),
     % ?INFO_MSG("~n start worker with max buffer size~p ",[State#ekaf_fsm.max_buffer_size]),
     fsm_next_state(ready,State);
-ready(timeout, #ekaf_fsm{ timer = Timer, buffer_ttl = BufferTTL } = State)->
-    gen_fsm:cancel_timer(Timer),
-    NextTimer = gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
-    fsm_next_state(ready, State#ekaf_fsm{ timer = NextTimer });
-ready({timeout, Timer, <<"refresh_every_second">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, last_known_size = LastKnownSize, cor_id = PrevCorId} = PrevState)->
+ready({timeout, Timer, <<"refresh_every_second">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
     Len = length(Buffer),
-
     %% if no activity for BufferTTL ms, then flush
-    State = case Len of
-                0 ->
-                    PrevState;
-                LastKnownSize ->
-                    ekaf_lib:handle_inactivity_timeout(PrevState);
+    {NextTTL,ToBuffer} = case Len of
+                   0 ->
+                       {BufferTTL,true};
+                   Curr when LastKnownSize =:= Curr, Curr =/= 0 ->
+                       % tobuffer is now false since unchanged",[]),
+                       {BufferTTL,false};
+                   _ when Len > MaxBufferSize ->
+                       % tobuffer is now false since reached batch size
+                       {BufferTTL-10,false};
+                   _ ->
+                       {BufferTTL,true}
+               end,
+    CorId = case PrevCorId of Big when Big > 2000000000 -> 0;_ -> PrevCorId end,
+    %% if no activity for BufferTTL ms, then flush
+    State = case ToBuffer of
+               false ->
+                    ekaf_lib:flush(PrevState);
                 _ ->
                     PrevState
             end,
-    Rem = Len rem MaxBufferSize,
-    %% if no activity for BufferTTL ms, then flush
-    ToBuffer = case Rem of
-                   0 when Len =:= 0 ->
-                       true;
-                   0 ->
-                       false;
-                   _ ->
-                       true
-               end,
-    CorId = case PrevCorId of Big when Big > 2000000000 -> 0;_ -> PrevCorId end,
     gen_fsm:cancel_timer(Timer),
-    gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
-    fsm_next_state(ready, State#ekaf_fsm{ to_buffer = ToBuffer, last_known_size = Len, cor_id = CorId });
+    gen_fsm:start_timer(NextTTL,<<"refresh_every_second">>),
+    fsm_next_state(ready, State#ekaf_fsm{ to_buffer = true, last_known_size = Len, cor_id = CorId });
 ready(_Event, State)->
     fsm_next_state(ready,State).
 %%--------------------------------------------------------------------
@@ -199,6 +195,9 @@ ready({produce_sync_batched, _} = Sync, From, PrevState)->
     ekaf_lib:handle_sync_as_batch(true, Sync, From, PrevState);
 ready(pool_name, _From, State) ->
     Reply = ekaf_lib:pool_name(State),
+    {reply, Reply, ready, State};
+ready({set,max_buffer_size,N}, _From, State) ->
+    Reply = {State#ekaf_fsm.max_buffer_size, N},
     {reply, Reply, ready, State};
 ready(buffer_size, _From, State) ->
     Reply = length( State#ekaf_fsm.buffer),

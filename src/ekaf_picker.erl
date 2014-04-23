@@ -4,6 +4,15 @@
 -export([pick_sync/3, pick_sync/4,
         pick_async/2]).
 
+%% Each topic gets its own gen_server to
+%%  pick a partition worker
+%% This step is blocking so that it can optimize
+%%  picking the same worker until it crosses batch_size, etc
+
+%% pick_async is what is directly called for sending events
+%% pick_sync is what is called when the topics ekaf_server
+%%  needs to pick the next worker ( usually checked once a second )
+
 pick(Topic)->
     Callback = undefined,
     pick(Topic,Callback).
@@ -28,8 +37,10 @@ pick(Topic, Callback, Mode, Strategy) ->
     end.
 
 pick_async(Topic,Callback)->
-    %Worker = pg2:get_closest_pid(Topic),Callback(Worker)
-    gen_server:cast(ekaf_server, {pick, Topic, Callback}).
+    RegName = ekaf_lib:get_topic_as_atom(Topic),
+    gen_server:cast(
+      RegName,
+      {pick, Topic, Callback}).
 
 pick_sync(Topic, Callback, Strategy)->
     pick_sync(Topic, Callback, Strategy, 0).

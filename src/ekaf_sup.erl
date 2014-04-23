@@ -28,10 +28,7 @@ start_link(Args)->
 %% @private
 -spec init(list()) -> {ok, _}.
 init(_Args) ->
-    {ok, { {one_for_one, 10, 10}, [
-                                   {ekaf_server, {ekaf_server, start_link, []},
-                                    permanent, infinity, worker, [ekaf_server]}
-                                  ] }}.
+    {ok, { {one_for_one, 10, 10}, [] }}.
 
 %%====================================================================
 %% Internal functions

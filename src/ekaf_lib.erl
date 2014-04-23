@@ -10,8 +10,8 @@
          start_child/4,
 
          %% read configs per topic
-         get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1, get_concurrency_opts/1, get_buffer_ttl/1, get_default/3,
-         get_pool_name/1,
+         get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1, get_concurrency_opts/1, get_buffer_ttl/1, get_default/3, get_callbacks/1,
+         get_pool_name/1, get_topic_as_atom/1,
 
          %% networking
          open_socket/1, close_socket/1,
@@ -24,7 +24,7 @@
          handle_inactivity_timeout/1,
 
          %% manipulating state
-         cursor/3,
+         cursor/3,flush/1,
 
          %% helpers
          data_to_message_sets/1, data_to_message_set/1,response_to_proplist/1,
@@ -67,16 +67,17 @@ common_sync(Event, Topic, Data, Timeout)->
 
 cursor(_,[], State)->
     {[], State};
-cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = ToBuffer}=State)->
+cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
     case BatchEnabled of
         true ->
-            % ekaf_lib:add_message_to_buffer(Messages,State);
-            case ToBuffer of
-                true ->
-                    ekaf_lib:add_message_to_buffer(Messages,State);
-                _ ->
-                    ekaf_lib:pop_messages_from_buffer(Messages,State)
-            end;
+            %% only timeout sends messages every BufferTTL ms
+            ekaf_lib:add_message_to_buffer(Messages,State);
+            % case ToBuffer of
+            %     true ->
+            %         ekaf_lib:add_message_to_buffer(Messages,State);
+            %     _ ->
+            %         ekaf_lib:pop_messages_from_buffer(Messages,State)
+            % end;
         _ ->
             {ekaf_lib:data_to_message_sets(Messages), State#ekaf_fsm{ cor_id =  State#ekaf_fsm.cor_id+1}}
     end.
@@ -87,12 +88,16 @@ handle_continue_when_not_ready(StateName,_Event, State)->
 handle_reply_when_not_ready(_Event, _From, State)->
     {reply, {error, {not_ready_for,_Event}}, State}.
 
-handle_inactivity_timeout(#ekaf_fsm{ buffer = []} = State)->
+handle_inactivity_timeout(State)->
+    ?MODULE:flush(State).
+
+flush(#ekaf_fsm{ buffer = []} = State)->
     State;
-handle_inactivity_timeout(PrevState)->
+flush(PrevState)->
     {Messages,State} = ekaf_lib:pop_messages_from_buffer([],PrevState),
     spawn_inactivity_timeout(Messages,State),
-    State.
+    pop_messages_callback(State),
+    State#ekaf_fsm{ last_known_size = 0 }.
 
 spawn_inactivity_timeout([],_)->
     ok;
@@ -205,6 +210,12 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
     pg2:create(Topic),
     Started = lists:foldl(
                 fun(#topic{ name = CurrTopicName } = CurrTopic,TopicsAcc) when CurrTopicName =:= Topic ->
+                        RegName = get_topic_as_atom(CurrTopicName),
+                        ekaf_sup:start_child(ekaf_sup,
+                                             {RegName, {ekaf_server, start_link, [{local,RegName}, [Topic]]},
+                                              permanent, infinity, worker, [RegName]}
+                                            ),
+
                         TempStarted =
                             [ begin
                                   Leader = Partition#partition.leader,
@@ -250,6 +261,21 @@ pop_messages_from_buffer(Messages,#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = 
     {Messages++Buffer, State#ekaf_fsm{ buffer = [], cor_id = CorId+1}};
 pop_messages_from_buffer(Message,#ekaf_fsm{ buffer= Buffer, cor_id = CorId }=State) ->
     {[Message|Buffer], State#ekaf_fsm{ buffer = [], cor_id = CorId+1}}.
+
+pop_messages_callback(State)->
+    spawn(fun()->
+                  FlushCallback = State#ekaf_fsm.flush_callback,
+                  case catch FlushCallback of
+                      {FlushCallbackModule,FlushCallbackFunction} ->
+                          Len = State#ekaf_fsm.last_known_size,
+                          Topic = State#ekaf_fsm.topic,
+                          PartitionId = State#ekaf_fsm.partition,
+                          CorId = State#ekaf_fsm.cor_id,
+                          FlushCallbackModule:FlushCallbackFunction(Topic, PartitionId, Len, undefined, CorId);
+                      undefined ->
+                          ok
+                  end
+          end).
 
 response_to_proplist(#produce_response{topics = Topics})->
     ProduceJson =
@@ -305,14 +331,13 @@ start_child(Broker, Topic, Leader, PartitionId)->
     %ChildPoolName = ?MODULE:get_pool_name({NextPoolName, TopicName, Broker, PartitionId, Leader }),
     %PoolArgs = [{name, {local, ChildPoolName }},{worker_module, ekaf_fsm}] ++ SizeArgs,
     % ekaf_sup:start_child(ekaf_sup,poolboy:child_spec(NextPoolName, PoolArgs, WorkerArgs))
-
     [
-      begin
-          ekaf_sup:start_child(ekaf_sup,
-                               {{WorkerArgs,X}, {ekaf_fsm, start_link, [WorkerArgs]},
-                                permanent, infinity, worker, [ekaf_fsm]}
-                              )
-      end || X<- lists:seq(1, proplists:get_value(size, SizeArgs))].
+     begin
+         ekaf_sup:start_child(ekaf_sup,
+                              {{WorkerArgs,X}, {ekaf_fsm, start_link, [WorkerArgs]},
+                               permanent, infinity, worker, [ekaf_fsm]}
+                             )
+     end || X<- lists:seq(1, proplists:get_value(size, SizeArgs))].
 
 get_bootstrap_broker()->
     case application:get_env(ekaf, ekaf_bootstrap_broker) of
@@ -385,6 +410,22 @@ get_pool_name({PoolName, Topic, Broker, PartitionId, Leader })->
 get_pool_name({Topic, Broker, PartitionId, Leader })->
     NextPoolName = {Topic, Broker, PartitionId, Leader },
     ekaf_utils:btoatom(ekaf_utils:itob(erlang:phash2(NextPoolName))).
+get_topic_as_atom(Topic)->
+    S = ekaf_utils:btoa(<<"ekaf_server_",Topic/binary>>),
+    case erl_scan:string(S) of
+        {ok, [{atom,_,A}|_],_} ->
+            A;
+        _ ->
+            list_to_atom(S)
+    end.
+
+get_callbacks(flush)->
+    case application:get_env(ekaf,ekaf_callback_flush) of
+        {ok,MF}-> MF;
+        _ -> undefined
+    end;
+get_callbacks(_) ->
+    undefined.
 
 open_socket({Host,Port}) when is_binary(Host)->
     open_socket({ ekaf_utils:btoa(Host),Port});

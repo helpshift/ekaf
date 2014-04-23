@@ -70,7 +70,7 @@
 %% Records
 %%======================================================================
 %% Used by workers
--record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = true::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, timer }).
+-record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = true::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, flush_callback }).
 
 
 %% Requests

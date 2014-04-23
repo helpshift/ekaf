@@ -8,13 +8,13 @@
 
 %%--------------------------------------------------------------------
 %% External exports
--export([start_link/0]).
+-export([start_link/0, start_link/1, start_link/2]).
 
 %% gen_server callbacks
 -export([init/1, kickoff/0,
          handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {kv, strategy, buffer_size, ctr, worker }).
+-record(state, {kv, strategy, buffer_size, ctr, worker, topic}).
 -define(SERVER, ?MODULE).
 
 %%====================================================================
@@ -25,7 +25,14 @@
 %% Description: Starts the server
 %%--------------------------------------------------------------------
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    start_link([]).
+start_link(Args) ->
+    gen_server:start_link(?MODULE, Args, []).
+start_link(Name,Args) ->
+    gen_server:start_link(Name, ?MODULE, Args,
+                          []
+                          %[{debug, [trace,statistics]}]
+                         ).
 
 %%====================================================================
 %% Server functions
@@ -39,11 +46,19 @@ start_link() ->
 %%          ignore               |
 %%          {stop, Reason}
 %%--------------------------------------------------------------------
+init([Topic])->
+    State = generic_init(),
+    erlang:send_after(1000, self(), <<"refresh_every_second">>),
+    {ok, State#state{topic = Topic}};
 init(_Args) ->
+    State = generic_init(),
+    {ok, State}.
+
+generic_init()->
     kickoff(),
     Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
     StickyPartitionBatchSize = ekaf_lib:get_default(any,ekaf_sticky_partition_buffer_size, 1000),
-    {ok, #state{strategy = Strategy, ctr = 0, kv = dict:new(), buffer_size = StickyPartitionBatchSize }}.
+    #state{strategy = Strategy, ctr = 0, kv = dict:new(), buffer_size = StickyPartitionBatchSize}.
 
 kickoff()->
     case ekaf_lib:get_bootstrap_topics() of
@@ -79,38 +94,14 @@ handle_call(_Request, _From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
-handle_cast({pick, Topic, Callback}, #state{ strategy = ordered_round_robin, ctr = Ctr, buffer_size = Max, worker = OldWorker } = State) ->
-    Rem = Ctr rem Max,
-    {Worker,Next} = case Rem of
-                 0 ->
-                     case handle_pick({pick, Topic, Callback}, self(), State) of
-                         {error,_}->
-                             {OldWorker, State};
-                         {NextWorker, NextState} ->
-                             {NextWorker, NextState}
-                     end;
-                 _ ->
-                     {OldWorker, State}
-             end,
-    case Worker of
-        Pid when is_pid(Pid) ->
-            Callback(Worker),
-            {noreply, Next#state{ worker = Worker, ctr = Ctr + 1}};
-        _ ->
-            {noreply, Next#state{ ctr = Ctr + 1}}
-    end;
+handle_cast({pick, _Topic, Callback}, #state{ strategy = ordered_round_robin, worker = Worker, ctr = Ctr } = State) ->
+    Callback(Worker),
+    {noreply, State#state{ ctr = Ctr + 1}};
 
 %% Random strategy. Faster, but kafka gets messages in different order than that produced
-handle_cast({pick, Topic, Callback}, State) ->
-    Worker =  ekaf_picker:pick(Topic,undefined,sync,State#state.strategy),
+handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
     Callback(Worker),
-    Next = case Worker of
-               Pid when is_pid(Pid)->
-                   State#state{ worker = Worker };
-               _ ->
-                   State
-           end,
-    {noreply, Next}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_info/2
@@ -119,6 +110,32 @@ handle_cast({pick, Topic, Callback}, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+
+handle_info(<<"refresh_every_second">>=TimeoutKey,
+            #state{
+              strategy = Strategy,
+              buffer_size = Max, worker = OldWorker, ctr = Ctr, topic = Topic} = State) ->
+    erlang:send_after(1000, self(), TimeoutKey),
+    ToPick = case Strategy of
+                 random ->
+                     true;
+                 ordered_round_robin when Ctr > Max ->
+                     true;
+                 _ ->
+                     false
+             end,
+    Next = case ToPick of
+               true ->
+                   case handle_pick({pick, Topic, undefined}, self(), State) of
+                       {error,_}->
+                           State#state{ ctr = 0 };
+                       {NextWorker, NextState} ->
+                           NextState#state{ ctr = 0, worker = NextWorker }
+                   end;
+               _ ->
+                   State
+           end,
+    {noreply, Next};
 handle_info({set, strategy, Value}, State)->
     Next = State#state{ strategy = Value },
     {noreply, Next};
@@ -153,15 +170,23 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-handle_pick({pick, Topic, _Callback}, _From, State)->
+handle_pick({pick, Topic, _Callback}, _From, #state{ kv = PrevKV } = State)->
     case pg2:get_closest_pid(Topic) of
 %ekaf_picker:pick(Topic,undefined,sync, State#state.strategy) of
         {error, {no_such_group,_}} ->
-            Added = State#state{ kv = dict:append(Topic, os:timestamp(), State#state.kv) },
+            Added = State#state{ kv = dict:append(Topic, 1, PrevKV) },
             ekaf:prepare(Topic),
             { {error, picking},
               Added};
         Pid when is_pid(Pid)->
+            % NextInt = case dict:find(Topic, PrevKV) of
+            %               {ok,[Int]} ->
+            %                   Int+1;
+            %               _ ->
+            %                   1
+            %           end,
+            % Next = State#state{ kv = dict:append(Topic, NextInt, PrevKV) },
+            %{Pid,Next};
             {Pid,State};
         _ ->
             {error, bootstrapping}
