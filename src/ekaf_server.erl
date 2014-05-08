@@ -48,6 +48,7 @@ start_link(Name,Args) ->
 %%--------------------------------------------------------------------
 init([Topic])->
     State = generic_init(),
+    gproc:reg({n,l,Topic},[]),
     {ok, State#state{topic = Topic}};
 init(_Args) ->
     State = generic_init(),
@@ -82,6 +83,9 @@ kickoff()->
 handle_call({pick, Topic, Callback},From, State)->
     {Reply, Next} = handle_pick({pick,Topic, Callback}, From, State),
     {reply, Reply, Next};
+handle_call(info, _From, State)->
+    Reply = State,
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -126,6 +130,8 @@ handle_info(<<"refresh_every_second">> = TimeoutKey,
                      true;
                  ordered_round_robin when Ctr > Max ->
                      true;
+                 round_robin ->
+                     true;
                  _ ->
                      false
              end,
@@ -141,6 +147,9 @@ handle_info(<<"refresh_every_second">> = TimeoutKey,
                    State
            end,
     {noreply, Next};
+handle_info({set, worker, Worker}, #state{ worker = undefined } = State) ->
+    erlang:send_after(1000, self(), ?EKAF_CONSTANT_REFRESH_EVERY_SEC),
+    {noreply, State#state{ worker = Worker}};
 handle_info({set, strategy, Value}, State)->
     Next = State#state{ strategy = Value },
     {noreply, Next};
@@ -177,8 +186,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 handle_pick({pick, Topic, _Callback}, _From, #state{ kv = PrevKV } = State)->
-    case pg2:get_closest_pid(Topic) of
-%ekaf_picker:pick(Topic,undefined,sync, State#state.strategy) of
+    %case pg2:get_closest_pid(Topic) of
+    case ekaf_picker:pick(Topic,undefined, sync, State#state.strategy) of
         {error, {no_such_group,_}} ->
             Added = State#state{ kv = dict:append(Topic, 1, PrevKV) },
             ekaf:prepare(Topic),

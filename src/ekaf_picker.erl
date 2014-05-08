@@ -26,6 +26,8 @@ pick(Topic, Callback, Mode) ->
     pick(Topic, Callback, Mode, ?EKAF_DEFAULT_PARTITION_STRATEGY).
 pick(Topic, Callback, Mode, Strategy) ->
     case Mode of
+        _ when Strategy =:= ordered_round_robin ->
+            pick_sync(Topic, Callback, Strategy);
         sync ->
             pick_sync(Topic,Callback, Strategy);
         _ when Callback =:= undefined->
@@ -37,10 +39,16 @@ pick(Topic, Callback, Mode, Strategy) ->
     end.
 
 pick_async(Topic,Callback)->
-    RegName = ekaf_lib:get_topic_as_atom(Topic),
-    gen_server:cast(
-      RegName,
-      {pick, Topic, Callback}).
+    %RegName = ekaf_lib:get_topic_as_atom(Topic),
+    RegName = gproc:where({n,l,Topic}),
+    case RegName of
+        undefined ->
+            ekaf:prepare(Topic);
+        _ ->
+            gen_server:cast(
+              RegName,
+              {pick, Topic, Callback})
+    end.
 
 pick_sync(Topic, Callback, Strategy)->
     pick_sync(Topic, Callback, Strategy, 0).

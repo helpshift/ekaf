@@ -99,7 +99,7 @@ You can also set different concurrency strategies for different topics
     {ekaf,[{ekaf_per_partition_workers, [
        {<<"topic1">>, 5},              % lazily start a connection pool of 5 workers
        {<<"topic2">>, 1},              % per partition
-       {ekaf_max_buffer_size, 1000}    % for remaining topics
+       {ekaf_per_partition_workers, 1000}    % for remaining topics
     ]}]}.
 
 By lazily starting a connection pool, these workers only are spawned on receipt of the first produce message received by that worker. More on this below.
@@ -145,8 +145,8 @@ Will attempt to deliver to kafka in the same order than was published by shardin
 ### No need for Zookeeper ###
 Does not need a connection to Zookeeper for broker info, etc. This adopts the pattern encouraged from the 0.8 protocol
 
-### No linked drivers, No NIF's, No Deps.   ###
-Deals with the protcol completely in erlang. Pattern matching FTW, see the blogpost that inspired this project ( also see https://coderwall.com/p/1lyfxg ).
+### No linked drivers, No NIF's, Minimal Deps.   ###
+Deals with the protcol completely in erlang. Pattern matching FTW, see the blogpost that inspired this project ( also see https://coderwall.com/p/1lyfxg ). Uses gproc for process registry.
 
 ### Optimized for using on a cluster ###
 * Works well if embedding into other OTP/rebar style apps ( eg: tested with `kafboy`)

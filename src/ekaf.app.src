@@ -5,7 +5,8 @@
   {registered, [ekaf_server]},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+                  gproc
                  ]},
   {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils, ekaf_picker, ekaf_stats]},
   {mod, { ekaf, []}}

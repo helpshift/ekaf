@@ -10,7 +10,7 @@
 pick_test_() ->
     {setup,
      fun() ->
-             application:start(poolboy),
+             application:start(gproc),
              application:load(ekaf),
              %% after 100ms of inactivity, send remaining messages in buffer
              application:set_env(ekaf, ekaf_sticky_partition_buffer_size, 200),
@@ -51,9 +51,10 @@ t_pick_from_new_pool()->
     Topic = ?TEST_TOPIC,
     ?assertMatch({error,_},pg2:get_closest_pid(Topic)),
     ekaf:prepare(Topic),
+    timer:sleep(100),
     ekaf:pick(?TEST_TOPIC,fun(Worker)->
                                   ?assertNotEqual( Worker, undefined),
-                                  case Worker of
+                                  case catch Worker of
                                       {Result,_}->
                                           ?assertNotEqual( Result, error );
                                       _ ->

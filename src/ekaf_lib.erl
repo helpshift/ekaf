@@ -50,7 +50,8 @@ common_async(Event, Topic, Data)->
                                  _ ->
                                      gen_fsm:send_event(Worker, {Event, Data})
                              end
-                     end).
+                     end),
+    ok.
 
 common_sync(Event, Topic, Data)->
     common_sync(Event, Topic, Data, ?EKAF_SYNC_TIMEOUT).
@@ -212,11 +213,11 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
     pg2:create(Topic),
     Started = lists:foldl(
                 fun(#topic{ name = CurrTopicName } = CurrTopic,TopicsAcc) when CurrTopicName =:= Topic ->
-                        RegName = get_topic_as_atom(CurrTopicName),
                         ekaf_sup:start_child(ekaf_sup,
-                                             {RegName, {ekaf_server, start_link, [{local,RegName}, [Topic]]},
-                                              permanent, infinity, worker, [RegName]}
+                                             {Topic, {ekaf_server, start_link, [[Topic]]},
+                                              permanent, infinity, worker, []}
                                             ),
+                        io:format("~n ~p will have ~p partitions",[Topic,length(CurrTopic#topic.partitions)]),
                         TempStarted =
                             [ begin
                                   Leader = Partition#partition.leader,
@@ -224,7 +225,6 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
                                   {ok,[Broker]} = dict:find(Leader, BrokersDict),
                                   Child = ekaf_lib:start_child(Broker, CurrTopic, Leader, PartitionId ),
                                   Child
-
                               end
                               || Partition <- CurrTopic#topic.partitions ],
                         [TempStarted|TopicsAcc];
@@ -324,15 +324,11 @@ data_to_message_set(Value, #message_set{ size = Size, messages = Messages }) ->
 
 start_child(Broker, Topic, Leader, PartitionId)->
     TopicName = Topic#topic.name,
-    SizeArgs = ?MODULE:get_concurrency_opts(Topic),
+    SizeArgs = ?MODULE:get_concurrency_opts(TopicName),
     NextPoolName = ?MODULE:get_pool_name({TopicName, Broker, PartitionId, Leader }),
 
     WorkerArgs = [NextPoolName, {Broker#broker.host,Broker#broker.port}, TopicName, Leader, PartitionId],
-
-    %Poolboy
-    %ChildPoolName = ?MODULE:get_pool_name({NextPoolName, TopicName, Broker, PartitionId, Leader }),
-    %PoolArgs = [{name, {local, ChildPoolName }},{worker_module, ekaf_fsm}] ++ SizeArgs,
-    % ekaf_sup:start_child(ekaf_sup,poolboy:child_spec(NextPoolName, PoolArgs, WorkerArgs))
+    io:format("~n  ~p partition ~p will have ~p workers",[TopicName,PartitionId, SizeArgs]),
     [
      begin
          ekaf_sup:start_child(ekaf_sup,
