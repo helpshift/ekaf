@@ -130,17 +130,29 @@ You can also change the default buffer flush on inactivity from 1 second. Topic 
 
 ### Partition choosing strategy
 
-#### Random Strategy ( Faster, since order not maintained among partition workers )
+#### random ( Faster, since order not maintained among partition workers )
 
 ![screenshot-strategy-random](/benchmarks/n30000_c100_strategy_random.png)
 
 Will deliver to kafka ordered within the same partition worker, but produced messages can go to any random partition worker. As a result, ordering finally at the kafka broker cannot be ensured.
 
-#### Ordered Round Robin
+#### sticky_round_robin
 
-![screenshot-strategy-ordered_round_robin](/benchmarks/n30000_c100_strategy_sticky_batch.png)
+![screenshot-strategy-sticky_round_robin](/benchmarks/n30000_c100_strategy_sticky_batch.png)
 
 Will attempt to deliver to kafka in the same order than was published by sharding 1000 writes at a time to the same partition worker before switching to another worker. The same partition worker order need not be chosen when run over long durations, but whichever partition worker is picked, its writes will be in order.
+
+#### strict_round_robin
+
+Every publish will go to a different partition. Helps for in-frequent events that must necessarily not go to the same consumer quickly.
+
+Again, you can configure the same strategy for all topics, or pick different for different topics
+
+    {ekaf_partition_strategy, [
+     {<<"heavy_job">>, strict_round_robin},
+     {<<"other_event">>, sticky_round_robin},
+     {ekaf_partition_strategy,  random}      %% default
+    ]}
 
 ### No need for Zookeeper ###
 Does not need a connection to Zookeeper for broker info, etc. This adopts the pattern encouraged from the 0.8 protocol

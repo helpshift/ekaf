@@ -26,8 +26,8 @@ pick(Topic, Callback, Mode) ->
     pick(Topic, Callback, Mode, ?EKAF_DEFAULT_PARTITION_STRATEGY).
 pick(Topic, Callback, Mode, Strategy) ->
     case Mode of
-        _ when Strategy =:= ordered_round_robin ->
-            pick_sync(Topic, Callback, Strategy);
+        %_ when Strategy =:= sticky_round_robin ->
+        %    pick_sync(Topic, Callback, Strategy);
         sync ->
             pick_sync(Topic,Callback, Strategy);
         _ when Callback =:= undefined->
@@ -56,7 +56,7 @@ pick_sync(Topic, Callback, Strategy)->
 pick_sync(_Topic, _Callback, ketama, _Attempt)->
     %TODO
     error;
-%% if strategy is ordered_round_robin or random
+%% if strategy is sticky_round_robin or strict_round_robin or random
 pick_sync(Topic, Callback, _Strategy, Attempt)->
     R = case pg2:get_closest_pid(Topic) of
             PoolPid when is_pid(PoolPid) ->

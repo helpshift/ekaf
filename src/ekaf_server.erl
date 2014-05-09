@@ -14,7 +14,7 @@
 -export([init/1, kickoff/0,
          handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {kv, strategy, max_buffer_size, ctr, worker, topic}).
+-record(state, {kv, strategy, max_buffer_size, ctr, worker, workers=[], topic}).
 -define(SERVER, ?MODULE).
 
 %%====================================================================
@@ -47,17 +47,17 @@ start_link(Name,Args) ->
 %%          {stop, Reason}
 %%--------------------------------------------------------------------
 init([Topic])->
-    State = generic_init(),
+    State = generic_init(Topic),
     gproc:reg({n,l,Topic},[]),
     {ok, State#state{topic = Topic}};
 init(_Args) ->
-    State = generic_init(),
+    State = generic_init(any),
     {ok, State}.
 
-generic_init()->
+generic_init(Topic)->
     kickoff(),
-    Strategy = ekaf_lib:get_default(any,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
-    StickyPartitionBatchSize = ekaf_lib:get_default(any,ekaf_sticky_partition_buffer_size, 1000),
+    Strategy = ekaf_lib:get_default(Topic,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
+    StickyPartitionBatchSize = ekaf_lib:get_default(Topic,ekaf_sticky_partition_buffer_size, 1000),
     #state{strategy = Strategy, ctr = 0, kv = dict:new(), max_buffer_size = StickyPartitionBatchSize}.
 
 kickoff()->
@@ -102,7 +102,10 @@ handle_cast({set, worker, Worker}, #state{ worker = undefined } = State) ->
     {noreply, State#state{ worker = Worker}};
 handle_cast({set, _, _}, State) ->
     {noreply, State};
-handle_cast({pick, _Topic, Callback}, #state{ strategy = ordered_round_robin, worker = Worker, ctr = Ctr } = State) ->
+handle_cast({pick, _Topic, Callback}, #state{ strategy = strict_round_robin, workers = [Worker|Workers] } = State) ->
+    Callback(Worker),
+    {noreply, State#state{ workers = Workers ++ [Worker]} };
+handle_cast({pick, _Topic, Callback}, #state{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
     Callback(Worker),
     {noreply, State#state{ ctr = Ctr + 1}};
 
@@ -122,15 +125,15 @@ handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
 handle_info(<<"refresh_every_second">> = TimeoutKey,
             #state{
               strategy = Strategy,
-              max_buffer_size = Max, ctr = Ctr, topic = Topic} = State) ->
+              max_buffer_size = Max, ctr = Ctr, topic = Topic, workers = Workers} = State) ->
 
     erlang:send_after(1000, self(), TimeoutKey),
     ToPick = case Strategy of
                  random ->
                      true;
-                 ordered_round_robin when Ctr > Max ->
+                 sticky_round_robin when Ctr > Max ->
                      true;
-                 round_robin ->
+                 strict_round_robin ->
                      true;
                  _ ->
                      false
@@ -141,7 +144,9 @@ handle_info(<<"refresh_every_second">> = TimeoutKey,
                        {error,_}->
                            State#state{ ctr = 0 };
                        {NextWorker, NextState} ->
-                           NextState#state{ ctr = 0, worker = NextWorker }
+                           Members = pg2:get_members(Topic),
+                           NextWorkers = case Workers of [] -> Members; _ -> case State#state.workers -- Members of [] -> Workers; _ -> Members end end,
+                           NextState#state{ ctr = 0, worker = NextWorker, workers =  NextWorkers}
                    end;
                _ ->
                    State
