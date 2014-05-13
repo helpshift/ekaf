@@ -81,7 +81,7 @@ atoi(_) ->
     error.
 
 to_lower(Bin) when is_binary(Bin)->
-    to_lower(binary_to_list(Bin));
+    list_to_binary(to_lower(binary_to_list(Bin)));
 to_lower(Str)->
     string:to_lower(Str).
 

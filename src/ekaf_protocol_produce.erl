@@ -112,11 +112,6 @@ encode_message_set(_) ->
 encode_messages(L)->
     encode_messages(L,<<>>).
 encode_messages([],Bin)->
-    % CRC = erlang:crc32(Bin),
-    % Final = Bin,
-    % %Final = <<CRC:32,Bin/binary>>,
-    % Size = byte_size(Final),
-    % <<Size:32,Final/binary>>;
     Bin;
 encode_messages([Message|Rest],Bin) ->
     encode_messages( Rest, << Bin/binary,(encode_message(Message))/binary>>);
@@ -126,7 +121,8 @@ encode_message(Message) when is_binary(Message)->
     encode_message(#message{ attributes = <<0:8>>, key = undefined, value = Message});
 encode_message(#message{ attributes = Atts, key = Key, value=Value})->
     Magic = ?API_VERSION,
-    Remaining = <<Magic:8, Atts:8, (ekaf_protocol:encode_bytes(Key))/binary, (ekaf_protocol:encode_bytes(Value))/binary>>,
+    Size = byte_size(Value),
+    Remaining = <<Magic:8, Atts:8, (ekaf_protocol:encode_bytes(Key))/binary, Size:32, Value/binary>>,
     CRC = erlang:crc32(Remaining),
     <<CRC:32, Remaining/binary>>;
 

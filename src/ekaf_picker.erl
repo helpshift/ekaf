@@ -45,8 +45,9 @@ pick_async(Topic,Callback)->
         undefined ->
             ekaf:prepare(Topic);
         _ ->
-            gen_server:cast(
-              RegName,
+            gproc:send({n,l,Topic},
+            %gen_server:cast(
+            % RegName,
               {pick, Topic, Callback})
     end.
 
@@ -73,28 +74,6 @@ pick_sync(Topic, Callback, _Strategy, Attempt)->
                         io:format("~n into timeout",[]),
                         {error,timeout}
                 end;
-        % not using poolboy for now
-        % when uncommenting this, also uncomment the start_child poolboy part
-        % PoolPid when is_pid(PoolPid), Strategy =:= poolboy ->
-        %     case erlang:is_process_alive(PoolPid) of
-        %         true ->
-        %             case Callback of
-        %                 Fun when is_function(Fun) ->
-        %                     case catch poolboy:transaction(PoolPid, Fun, 1234) of
-        %                         X ->
-        %                             X
-        %                     end;
-        %                 _ ->
-        %                     io:format("~n someone called pool/1",[]),
-        %                     Worker = poolboy:checkout(PoolPid, true, 400),
-        %                     poolboy:checkin(PoolPid,Worker),
-        %                     Worker
-        %             end;
-        %         _ ->
-        %             io:format("~n ~p leaving group since dead",[PoolPid]),
-        %             pg2:leave(Topic, PoolPid),
-        %             {error,dead_pool}
-        %     end;
             _E ->
                 io:format("~p pick_sync RROR: ~p",[?MODULE,_E]),
                 _E

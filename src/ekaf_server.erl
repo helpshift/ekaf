@@ -97,21 +97,20 @@ handle_call(_Request, _From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+handle_cast({pick, _Topic, Callback}, #state{ strategy = strict_round_robin, workers = [Worker|Workers] } = State) ->
+    Callback(Worker),
+    {noreply, State#state{ workers = lists:append(Workers,[Worker])} };
+handle_cast({pick, _Topic, Callback}, #state{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
+    Callback(Worker),
+    {noreply, State#state{ ctr = Ctr + 1}};
+%% Random strategy. Faster, but kafka gets messages in different order than that produced
+handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
+    Callback(Worker),
+    {noreply, State};
 handle_cast({set, worker, Worker}, #state{ worker = undefined } = State) ->
     erlang:send_after(1000, self(), ?EKAF_CONSTANT_REFRESH_EVERY_SEC),
     {noreply, State#state{ worker = Worker}};
 handle_cast({set, _, _}, State) ->
-    {noreply, State};
-handle_cast({pick, _Topic, Callback}, #state{ strategy = strict_round_robin, workers = [Worker|Workers] } = State) ->
-    Callback(Worker),
-    {noreply, State#state{ workers = Workers ++ [Worker]} };
-handle_cast({pick, _Topic, Callback}, #state{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
-    Callback(Worker),
-    {noreply, State#state{ ctr = Ctr + 1}};
-
-%% Random strategy. Faster, but kafka gets messages in different order than that produced
-handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
-    Callback(Worker),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -121,7 +120,15 @@ handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
-
+handle_info({pick, _Topic, Callback}, #state{ strategy = strict_round_robin, workers = [Worker|Workers] } = State) ->
+    Callback(Worker),
+    {noreply, State#state{ workers = lists:append(Workers,[Worker])} };
+handle_info({pick, _Topic, Callback}, #state{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
+    Callback(Worker),
+    {noreply, State#state{ ctr = Ctr + 1}};
+handle_info({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
+    Callback(Worker),
+    {noreply, State};
 handle_info(<<"refresh_every_second">> = TimeoutKey,
             #state{
               strategy = Strategy,
@@ -143,10 +150,12 @@ handle_info(<<"refresh_every_second">> = TimeoutKey,
                    case handle_pick({pick, Topic, undefined}, self(), State) of
                        {error,_}->
                            State#state{ ctr = 0 };
-                       {NextWorker, NextState} ->
+                       {NextWorker, NextState} when Strategy =:= strict_round_robin->
                            Members = pg2:get_members(Topic),
                            NextWorkers = case Workers of [] -> Members; _ -> case State#state.workers -- Members of [] -> Workers; _ -> Members end end,
-                           NextState#state{ ctr = 0, worker = NextWorker, workers =  NextWorkers}
+                           NextState#state{ ctr = 0, worker = NextWorker, workers =  NextWorkers};
+                       {NextWorker, NextState} ->
+                           NextState#state{ ctr = 0, worker = NextWorker}
                    end;
                _ ->
                    State
@@ -167,7 +176,6 @@ handle_info({from, From, {pick, Topic, Callback}}, State)->
     {Reply, Next} = handle_pick({pick, Topic, Callback}, From, State),
     From ! Reply,
     {noreply, Next};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -192,12 +200,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 handle_pick({pick, Topic, _Callback}, _From, #state{ kv = PrevKV } = State)->
     %case pg2:get_closest_pid(Topic) of
-    case ekaf_picker:pick(Topic,undefined, sync, State#state.strategy) of
-        {error, {no_such_group,_}} ->
-            Added = State#state{ kv = dict:append(Topic, 1, PrevKV) },
-            ekaf:prepare(Topic),
-            { {error, picking},
-              Added};
+    case ekaf_picker:pick(Topic, undefined, sync, State#state.strategy) of
         Pid when is_pid(Pid)->
             % NextInt = case dict:find(Topic, PrevKV) of
             %               {ok,[Int]} ->
@@ -208,6 +211,11 @@ handle_pick({pick, Topic, _Callback}, _From, #state{ kv = PrevKV } = State)->
             % Next = State#state{ kv = dict:append(Topic, NextInt, PrevKV) },
             %{Pid,Next};
             {Pid,State#state{ worker = Pid}};
+        {error, {no_such_group,_}} ->
+            Added = State#state{ kv = dict:append(Topic, 1, PrevKV) },
+            ekaf:prepare(Topic),
+            { {error, picking},
+              Added};
         _ ->
             {{error, bootstrapping}, State}
     end;

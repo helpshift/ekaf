@@ -106,22 +106,23 @@ spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId
     spawn(
       fun()->
               MessageSets = ekaf_lib:data_to_message_sets(Messages),
-              case length(MessageSets) of
-                      0 ->
-                          ok;
-                      _ ->
-                          ProducePacket = DefProducePacket#produce_request{
-                                            topics= [ DefTopicPacket#topic{
-                                                        partitions =
-                                                        [DefPartitionPacket#partition{
-                                                           message_sets_size = length(MessageSets),
-                                                           message_sets = MessageSets}]
-                                                       }]
-                                           },
-                          Request = ekaf_protocol:encode_async(CorId, ClientId, ProducePacket),
-                          gen_tcp:send(Socket, Request)
-                  end
-          end).
+              case MessageSets of
+                  [] ->
+                      ok;
+                  _ ->
+                      ProducePacket = DefProducePacket#produce_request{
+                                        topics= [ DefTopicPacket#topic{
+                                                    partitions =
+                                                    [DefPartitionPacket#partition{
+                                                       message_sets_size = length(MessageSets),
+                                                       message_sets = MessageSets}]
+                                                   }]
+                                       },
+                      Request = ekaf_protocol:encode_async(CorId, ClientId, ProducePacket),
+                      erlang:port_command(Socket, Request, [nosuspend])
+                      %gen_tcp:send(Socket, Request)
+              end
+      end).
 
 
 handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
@@ -132,7 +133,7 @@ handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
 spawn_async_as_batch(_,[],_)->
     ok;
 spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, to_buffer = ToBuffer, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket } = State)->
-    %spawn(fun()->
+    spawn(fun()->
                   case (BatchEnabled and ToBuffer) of
                       true ->
                           Response = {buffered, State#ekaf_fsm.partition, length(State#ekaf_fsm.buffer) },
@@ -144,13 +145,14 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, clien
                                                         partitions =
                                                         [DefPartitionPacket#partition{
                                                            message_sets_size = length(MessageSets),
-                                                   message_sets = MessageSets}]
+                                                           message_sets = MessageSets}]
                                                        }]
                                            },
                           Request = ekaf_protocol:encode_async(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
-                          gen_tcp:send(Socket, Request)
-                  end.
-     %     end).
+                          erlang:port_command(Socket, Request, [nosuspend])
+                          %gen_tcp:send(Socket, Request)
+                  end
+          end).
 
 %% if BatchEnabled, then there are bufferent and sent only when reaching max_buffer_size
 handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = ToBuffer} = PrevState)->
@@ -181,7 +183,8 @@ spawn_sync_as_batch(MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientI
                                                }]
                                    },
                   Request = ekaf_protocol:encode_sync(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
-                  gen_tcp:send(Socket, Request)
+                  erlang:port_command(Socket, Request, [nosuspend])
+                  %gen_tcp:send(Socket, Request)
           end).
 
 
@@ -200,17 +203,17 @@ handle_connected({metadata, Topic}, State)->
             NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
             gen_fsm:send_event(self(), {metadata,Metadata}),
             fsm_next_state(bootstrapping, NewState);
-        {error, Reason} ->
+        Reason ->
             {stop, Reason, State}
     end.
 
 handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Topic } = State)->
+    pg2:create(Topic),
     BrokersDict = lists:foldl(fun(Broker,Dict)->
                                        dict:append(Broker#broker.node_id,
                                                   Broker,
                                                   Dict)
                               end, dict:new(), Metadata#metadata_response.brokers),
-    pg2:create(Topic),
     Started = lists:foldl(
                 fun(#topic{ name = CurrTopicName } = CurrTopic,TopicsAcc) when CurrTopicName =:= Topic ->
                         ekaf_sup:start_child(ekaf_sup,
@@ -249,15 +252,18 @@ handle_metadata_during_ready({metadata, Topic}, _From, State)->
                 end,
             NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
             {reply, Response, ready, NewState};
-        {error, Reason} ->
+        Reason ->
             ?ERROR_MSG("~p",[Reason]),
             {stop, Reason, State}
     end.
 
-add_message_to_buffer(Messages,State) when is_list(Messages)->
-    {[], State#ekaf_fsm{ buffer = Messages ++ State#ekaf_fsm.buffer, cor_id = State#ekaf_fsm.cor_id+1}};
-add_message_to_buffer(Message,State)->
-    {[], State#ekaf_fsm{ buffer = [Message | State#ekaf_fsm.buffer], cor_id = State#ekaf_fsm.cor_id+1}}.
+add_message_to_buffer(Message,State) when is_binary(Message)->
+    {[], State#ekaf_fsm{ buffer = [Message | State#ekaf_fsm.buffer], cor_id = State#ekaf_fsm.cor_id+1}};
+add_message_to_buffer(Messages,State) ->
+    {[], State#ekaf_fsm{ buffer = Messages ++ State#ekaf_fsm.buffer, cor_id = State#ekaf_fsm.cor_id+1}}.
+
+pop_messages_from_buffer([],#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = State) ->
+    {Buffer, State#ekaf_fsm{ buffer = [], cor_id = CorId+1}};
 pop_messages_from_buffer(Messages,#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = State) when is_list(Messages)->
     {Messages++Buffer, State#ekaf_fsm{ buffer = [], cor_id = CorId+1}};
 pop_messages_from_buffer(Message,#ekaf_fsm{ buffer= Buffer, cor_id = CorId }=State) ->
@@ -429,7 +435,8 @@ open_socket({Host,Port}) when is_binary(Host)->
     open_socket({ ekaf_utils:btoa(Host),Port});
 
 open_socket({Host,Port})->
-    gen_tcp:connect(Host, Port, [binary, {packet, 4}]).
+    gen_tcp:connect(Host, Port, [binary,{packet, 4}
+                                ,{sndbuf, 10000000}]).
 
 close_socket(undefined)->
     ok;
