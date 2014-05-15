@@ -52,6 +52,7 @@ start_link(Args)->
 %%          {stop, StopReason}
 %%--------------------------------------------------------------------
 init([ReplyTo, Broker, Topic]) ->
+    ?DEBUG_MSG("~n open socket to ~p",[Broker]),
     case ekaf_lib:open_socket(Broker) of
         {ok,Socket} ->
             State = #ekaf_fsm{
@@ -68,6 +69,7 @@ init([ReplyTo, Broker, Topic]) ->
     end;
 
 init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
+    io:format("~n open ~p with Broker ~p for leader ~p partition ~p",[Topic,Broker,Leader,Partition]),
     case ekaf_lib:open_socket(Broker) of
         {ok,Socket} ->
             PartitionPacket = #partition{
@@ -84,7 +86,7 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
               topics= [TopicPacket]
              },
             BufferTTL = ekaf_lib:get_buffer_ttl(Topic),
-            gen_fsm:start_timer(BufferTTL,<<"refresh_every_second">>),
+            gen_fsm:start_timer(BufferTTL,<<"refresh">>),
             State = #ekaf_fsm{
               pool = PoolName,
               topic = Topic,
@@ -151,7 +153,7 @@ ready(ping, #ekaf_fsm{ topic = Topic } = State)->
     %gen_server:cast(erlang:whereis(ekaf_lib:get_topic_as_atom(Topic)), {set,worker,self()}),
     gproc:send({n,l,Topic}, {set, worker, self()}),
     fsm_next_state(ready,State);
-ready({timeout, Timer, <<"refresh_every_second">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
+ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
     Len = length(Buffer),
     %% if no activity for BufferTTL ms, then flush
     {NextTTL,ToBuffer} = case Len of
@@ -175,7 +177,7 @@ ready({timeout, Timer, <<"refresh_every_second">>}, #ekaf_fsm{ buffer = Buffer, 
                     PrevState
             end,
     gen_fsm:cancel_timer(Timer),
-    gen_fsm:start_timer(NextTTL,<<"refresh_every_second">>),
+    gen_fsm:start_timer(NextTTL,<<"refresh">>),
     fsm_next_state(ready, State#ekaf_fsm{ to_buffer = true, last_known_size = Len, cor_id = CorId });
 ready(_Event, State)->
     fsm_next_state(ready,State).

@@ -220,7 +220,7 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
                                              {Topic, {ekaf_server, start_link, [[Topic]]},
                                               permanent, infinity, worker, []}
                                             ),
-                        io:format("~n ~p will have ~p partitions",[Topic,length(CurrTopic#topic.partitions)]),
+                        ?DEBUG_MSG("~n ~p will have ~p partitions",[Topic,length(CurrTopic#topic.partitions)]),
                         TempStarted =
                             [ begin
                                   Leader = Partition#partition.leader,

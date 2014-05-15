@@ -58,7 +58,9 @@ atob(B) ->
     B.
 
 btoi(B) when is_binary(B) ->
-    ?MODULE:atoi(binary_to_list(B));
+    binary_to_integer(B);
+btoi(I) when is_list(I)->
+    list_to_integer(I);
 btoi(I) when is_integer(I)->
     I;
 btoi(_T) ->
