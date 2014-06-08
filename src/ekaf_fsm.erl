@@ -69,7 +69,7 @@ init([ReplyTo, Broker, Topic]) ->
     end;
 
 init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
-    io:format("~n open ~p with Broker ~p for leader ~p partition ~p",[Topic,Broker,Leader,Partition]),
+    ?DEBUG_MSG("~n open ~p with Broker ~p for leader ~p partition ~p",[Topic,Broker,Leader,Partition]),
     case ekaf_lib:open_socket(Broker) of
         {ok,Socket} ->
             PartitionPacket = #partition{
@@ -235,7 +235,7 @@ handle_event(_Event, StateName, StateData) ->
 %%          {stop, Reason, Reply, NewStateData}
 %%--------------------------------------------------------------------
 handle_sync_event(Event, _From, StateName, State) ->
-    io:format("~n into handle_sync_event/4 ~p",[Event]),
+    ?INFO_MSG("~n into handle_sync_event/4 ~p",[Event]),
     Reply = ok,
     {reply, Reply, StateName, State}.
 
@@ -255,12 +255,12 @@ handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_f
                                     ekaf_protocol:decode_produce_response(Packet)},
                            gen_fsm:reply(From,Reply);
                        _TE ->
-                           io:format("~n EKAF got ~p so ignore",[_TE]),
+                           ?INFO_MSG("~n EKAF got ~p so ignore",[_TE]),
                            ok
                    end,
                    State#ekaf_fsm{ kv = dict:erase({cor_id,CorrelationId}, KV) };
                _E->
-                   io:format("~n found ~p so ignore",[_E]),
+                   ?INFO_MSG("~n found ~p so ignore",[_E]),
                    State
            end,
     fsm_next_state(ready, Next);
@@ -268,11 +268,11 @@ handle_info({tcp_closed,Socket}, ready, State)->
     spawn(fun()->
                   ekaf_lib:close_socket(Socket),
                   %{stop, closed, State#ekaf_fsm{ socket = undefined }};
-                  io:format("~n disconnected from broker buffer size is ~p",[length(State#ekaf_fsm.buffer)])
+                  ?INFO_MSG("~n disconnected from broker buffer size is ~p",[length(State#ekaf_fsm.buffer)])
           end),
     ekaf_lib:fsm_next_state(ready, State#ekaf_fsm{ socket = undefined }, ?EKAF_SYNC_TIMEOUT);
 handle_info(Info, StateName, State) ->
-    io:format("~n got info at ~p ~p state:~p",[os:timestamp(), Info, State]),
+    ?INFO_MSG("~n got info at ~p ~p state:~p",[os:timestamp(), Info, State]),
     fsm_next_state(StateName, State).
 
 %%--------------------------------------------------------------------
@@ -282,7 +282,6 @@ handle_info(Info, StateName, State) ->
 %%--------------------------------------------------------------------
 terminate(_Reason, _StateName, State) ->
     spawn(fun()->
-                  %io:format("~n ~p ~p terminating since ~p",[?MODULE,self(), _Reason]),
                   ekaf_lib:close_socket(State#ekaf_fsm.socket)
           end),
     ok.

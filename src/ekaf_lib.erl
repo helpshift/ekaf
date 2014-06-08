@@ -285,6 +285,8 @@ flush_messages_callback(State)->
                   end
           end).
 
+response_to_proplist({{sent,_,_},Response})->
+    response_to_proplist(Response);
 response_to_proplist(#produce_response{topics = Topics})->
     ProduceJson =
         lists:foldl(fun(TopicRow,TAcc)->
@@ -334,7 +336,7 @@ start_child(Broker, Topic, Leader, PartitionId)->
     NextPoolName = ?MODULE:get_pool_name({TopicName, Broker, PartitionId, Leader }),
 
     WorkerArgs = [NextPoolName, {Broker#broker.host,Broker#broker.port}, TopicName, Leader, PartitionId],
-    io:format("~n  ~p partition ~p will have ~p workers",[TopicName,PartitionId, SizeArgs]),
+    ?DEBUG_MSG("~n  ~p partition ~p will have ~p workers",[TopicName,PartitionId, SizeArgs]),
     [
      begin
          ekaf_sup:start_child(ekaf_sup,
