@@ -37,6 +37,12 @@ encode_produce_request(CorrelationId, ClientId, ProducePacket)->
 encode_produce_packet(#produce_request{required_acks = RequiredAcks, timeout = Timeout, topics = Topics}=_Packet)->
     Encoded = encode_topics_with_partitions_and_messages(Topics),
     <<RequiredAcks:16, Timeout:32, Encoded/binary>>;
+    % 0,0,             0,0,0,100,
+               %  0,0,0,1,0,6,
+               %  101,118,101,110,116,115,0,0,0,1,0,0,0,1,0,0,0,29,0,0,0,0,0,0,0,
+               %  0,0,0,0,17,250,139,27,76,0,0,255,255,255,255,0,0,0,3,102,111,
+               %  111>>
+
 encode_produce_packet(_) ->
     <<>>.
 
@@ -51,6 +57,9 @@ encode_topics(Topics) when is_list(Topics)->
     Len = length(Topics),
     EncodedTopics = encode_topics(Topics,<<>>),
     <<Len:32, EncodedTopics/binary>>;
+   %  0,0,0,1,
+
+
 encode_topics(_) ->
     <<>>.
 
@@ -60,6 +69,11 @@ encode_topic(#topic{ partitions = [] }=Topic)->
     encode_topic(Topic#topic{ partitions = [#partition{ id = 1 }] });
 encode_topic(Topic) when is_record(Topic,topic) ->
     <<(ekaf_protocol:encode_string(Topic#topic.name))/binary, (encode_partitions(Topic#topic.partitions))/binary >>;
+   %  0,6,
+   %  101,118,101,110,116,115,
+                                                              % 0,0,0,1,0,0,0,1,0,0,0,29,0,0,0,0,0,0,0,
+                                                              % 0,0,0,0,17,250,139,27,76,0,0,255,255,255,255,0,0,0,3,102,111,
+                                                              % 111>>
 encode_topic(_)->
     <<>>.
 
@@ -80,8 +94,8 @@ encode_partitions(_) ->
 encode_partition(Partition) when is_integer(Partition)->
     encode_partition(#partition{ id = Partition, message_sets_size = 0 });
 encode_partition(#partition{ id = Id,  message_sets = MessageSets })->
-    MessageSetsEncoded = encode_message_sets(MessageSets), %%% NOTE: made this set instead of sets
-    Size = byte_size(MessageSetsEncoded),
+    MessageSetsEncoded = encode_message_sets(MessageSets), %%%
+    Size = byte_size(MessageSetsEncoded),                  %%% here size is byte_size instead of length
     <<Id:32,
      Size:32,
      MessageSetsEncoded/binary>>.

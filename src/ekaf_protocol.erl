@@ -37,6 +37,11 @@ encode_array(List) ->
 encode_request(ApiKey, CorrelationId, ClientId, RequestMessage) ->
     <<ApiKey:16, ?API_VERSION:16, CorrelationId:32, (encode_string(ClientId))/binary, RequestMessage/binary>>.
 
+   %<<0,0,       0,0,             0,0,0,1,          0,4,101,107,97,102,
+               %  0,0,0,0,0,100,0,0,0,1,0,6,
+               %  101,118,101,110,116,115,0,0,0,1,0,0,0,1,0,0,0,29,0,0,0,0,0,0,0,
+               %  0,0,0,0,17,250,139,27,76,0,0,255,255,255,255,0,0,0,3,102,111,
+               %  111>>
 encode_sync(CorrelationId, ClientId, Packet)->
     ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet).
 

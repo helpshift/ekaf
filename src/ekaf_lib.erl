@@ -194,8 +194,11 @@ handle_connected({metadata, Topic}, State)->
     case gen_tcp:send(State#ekaf_fsm.socket, Request) of
         ok ->
             Metadata =
-                receive
-                    {tcp, _Port, <<_CorrelationId:32, _/binary>> = Packet} ->
+                %receive
+                %    {tcp, _Port, <<_CorrelationId:32, _/binary>> = Packet} ->
+                case gen_tcp:recv(State#ekaf_fsm.socket, 0, 5000) of
+                    {ok, <<_CorrelationId:32, _/binary>> = Packet } ->
+                        io:format("~n handle_connected got ~p",[Packet]),
                         ekaf_protocol:decode_metadata_response(Packet);
                     _E ->
                         {error,_E}
@@ -244,10 +247,14 @@ handle_metadata_during_ready({metadata, Topic}, _From, State)->
     case gen_tcp:send(State#ekaf_fsm.socket, Request) of
         ok ->
             Response =
-                receive
-                    {tcp, _Port, <<CorrelationId:32, _/binary>> = Packet} ->
+                case gen_tcp:recv(State#ekaf_fsm.socket, 0, 5000) of
+                %receive
+                   %{tcp, _Port, <<CorrelationId:32, _/binary>> = Packet}
+                    {ok, <<CorrelationId:32, _/binary>> = Packet } ->
+                        io:format("~n got ~p",[Packet]),
                         ekaf_protocol:decode_metadata_response(Packet);
                     Packet ->
+                        io:format("~n got error ~p",[Packet]),
                         {error,Packet}
                 end,
             NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
