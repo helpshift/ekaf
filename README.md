@@ -2,6 +2,8 @@
 
 An advanced but simple to use, Kafka producer written in Erlang
 
+[![Build Status](https://secure.travis-ci.org/bosky101/ekaf.svg?branch=master "Build Status")](http://travis-ci.org/bosky101/ekaf)
+
 ### Highlights ###
 * A minimal implementation of a `Producer` as per 0.8 Kafka wire protocol
 * Produce data to a Topic syncronously and asynchronously
