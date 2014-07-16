@@ -102,6 +102,8 @@ flush(PrevState)->
 
 spawn_inactivity_timeout([],_)->
     ok;
+spawn_inactivity_timeout(_,#ekaf_fsm{socket = undefined} )->
+    ok;
 spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId, socket = Socket, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket})->
     spawn(
       fun()->
@@ -120,7 +122,6 @@ spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId
                                        },
                       Request = ekaf_protocol:encode_async(CorId, ClientId, ProducePacket),
                       erlang:port_command(Socket, Request, [nosuspend])
-                      %gen_tcp:send(Socket, Request)
               end
       end).
 
@@ -131,6 +132,8 @@ handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
     fsm_next_state(ready, State, State#ekaf_fsm.buffer_ttl).
 
 spawn_async_as_batch(_,[],_)->
+    ok;
+spawn_async_as_batch(_,_, #ekaf_fsm{ socket = undefined })->
     ok;
 spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, to_buffer = ToBuffer, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket } = State)->
     spawn(fun()->
@@ -150,7 +153,6 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, clien
                                            },
                           Request = ekaf_protocol:encode_async(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
                           erlang:port_command(Socket, Request, [nosuspend])
-                          %gen_tcp:send(Socket, Request)
                   end
           end).
 
@@ -169,6 +171,8 @@ handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = T
 
 spawn_sync_as_batch([],_)->
     ok;
+spawn_sync_as_batch(_, #ekaf_fsm{ socket = undefined })->
+    ok;
 spawn_sync_as_batch(MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket} = State)->
     spawn(fun()->
                   %% each messge goes in a different messageset, even for batching
@@ -184,29 +188,20 @@ spawn_sync_as_batch(MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientI
                                    },
                   Request = ekaf_protocol:encode_sync(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
                   erlang:port_command(Socket, Request, [nosuspend])
-                  %gen_tcp:send(Socket, Request)
           end).
 
 
-handle_connected({metadata, Topic}, State)->
+handle_connected({metadata, Topic}, #ekaf_fsm{ socket = Socket} = State)->
     CorrelationId = State#ekaf_fsm.cor_id,
     Request = ekaf_protocol:encode_metadata_request(CorrelationId, "", [Topic]),
     case gen_tcp:send(State#ekaf_fsm.socket, Request) of
         ok ->
-            Metadata =
-                %receive
-                %    {tcp, _Port, <<_CorrelationId:32, _/binary>> = Packet} ->
-                case gen_tcp:recv(State#ekaf_fsm.socket, 0, 5000) of
-                    {ok, <<_CorrelationId:32, _/binary>> = Packet } ->
-                        io:format("~n handle_connected got ~p",[Packet]),
-                        ekaf_protocol:decode_metadata_response(Packet);
-                    _E ->
-                        {error,_E}
-                end,
+            Metadata = recv_incoming_metadata(Socket,<<>>),
             NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
             gen_fsm:send_event(self(), {metadata,Metadata}),
             fsm_next_state(bootstrapping, NewState);
         Reason ->
+           ?INFO_MSG("~n stop since ~p",[Reason]),
             {stop, Reason, State}
     end.
 
@@ -240,23 +235,13 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
     State#ekaf_fsm.reply_to ! {ready,Started},
     {stop, normal, State#ekaf_fsm{metadata = Metadata}}.
 
-handle_metadata_during_ready({metadata, Topic}, _From, State)->
+handle_metadata_during_ready({metadata, Topic}, _From, #ekaf_fsm{ socket = Socket } = State)->
     CorrelationId = State#ekaf_fsm.cor_id+1,
     ClientId = State#ekaf_fsm.client_id,
     Request = ekaf_protocol:encode_metadata_request(CorrelationId,ClientId, [Topic]),
     case gen_tcp:send(State#ekaf_fsm.socket, Request) of
         ok ->
-            Response =
-                case gen_tcp:recv(State#ekaf_fsm.socket, 0, 5000) of
-                %receive
-                   %{tcp, _Port, <<CorrelationId:32, _/binary>> = Packet}
-                    {ok, <<CorrelationId:32, _/binary>> = Packet } ->
-                        io:format("~n got ~p",[Packet]),
-                        ekaf_protocol:decode_metadata_response(Packet);
-                    Packet ->
-                        io:format("~n got error ~p",[Packet]),
-                        {error,Packet}
-                end,
+            Response = recv_incoming_metadata(Socket, <<>>),
             NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
             {reply, Response, ready, NewState};
         Reason ->
@@ -456,3 +441,17 @@ fsm_next_state(StateName,State)->
     ekaf_fsm:fsm_next_state(StateName, State).
 fsm_next_state(StateName,State, Timeout)->
     ekaf_fsm:fsm_next_state(StateName, State, Timeout).
+
+
+recv_incoming_metadata(Socket,Acc)->
+    receive
+        {tcp, _, Packet} ->
+            case Packet of
+                <<_CorrelationId:32, _/binary>>  ->
+                    ekaf_protocol:decode_metadata_response(Packet);
+                Packet ->
+                    {error,Packet}
+            end;
+        _E ->
+            recv_incoming_metadata(Socket, Acc )
+    end.

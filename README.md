@@ -2,7 +2,7 @@
 
 An advanced but simple to use, Kafka producer written in Erlang
 
-### Highlights of v0.1 ###
+### Highlights ###
 * A minimal implementation of a `Producer` as per 0.8 Kafka wire protocol
 * Produce data to a Topic syncronously and asynchronously
 * Option to batche messages and customize the concurrency
@@ -305,9 +305,13 @@ Running the test on a 2GB RAM vagrant VM, where the broker was local
 
 ### Tests ###
 
-The tests assume you have a topic `ekaf`. Create it as instructed on the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
+ekaf comes embedded with `kafkamocker` - an erlang/otp app that any app can embed to simulate a kafka broker.
+This means that an actual consumer has verified the receipt of the published messages in our eunit tests.
+
+To create your own topics and test them see the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
 
     $ bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic ekaf
+
 ekaf works well with rebar.
 
     $ rebar get-deps clean compile eunit
@@ -325,42 +329,43 @@ ekaf works well with rebar.
     Compiled src/ekaf_protocol_produce.erl
     Compiled src/ekaf_utils.erl
     Compiled test/ekaf_tests.erl
-    test/ekaf_tests.erl:23:<0.485.0>: t_pick_from_new_pool ( ) = ok
-    test/ekaf_tests.erl:25:<0.694.0>: t_request_metadata ( ) = ok
-    test/ekaf_tests.erl:27:<0.698.0>: t_request_info ( ) = ok
-    test/ekaf_tests.erl:30:<0.702.0>: t_produce_sync_to_topic ( ) = ok
-    test/ekaf_tests.erl:32:<0.706.0>: t_produce_sync_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:34:<0.710.0>: t_produce_sync_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:36:<0.714.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:39:<0.718.0>: t_produce_async_to_topic ( ) = ok
-    test/ekaf_tests.erl:41:<0.723.0>: t_produce_async_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:43:<0.728.0>: t_produce_async_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:45:<0.732.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:33:<0.227.0>: t_pick_from_new_pool ( ) = ok
+    test/ekaf_tests.erl:35:<0.442.0>: t_request_metadata ( ) = ok
+    test/ekaf_tests.erl:37:<0.446.0>: t_request_info ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605064 kafka_consumer_loop INCOMING 1
+    test/ekaf_tests.erl:40:<0.450.0>: t_produce_sync_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605071 kafka_consumer_loop INCOMING 3
+    test/ekaf_tests.erl:42:<0.455.0>: t_produce_sync_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605093 kafka_consumer_loop INCOMING 1
+    test/ekaf_tests.erl:44:<0.460.0>: t_produce_sync_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605115 kafka_consumer_loop INCOMING 11
+    test/ekaf_tests.erl:46:<0.466.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605122 kafka_consumer_loop INCOMING 1
+    test/ekaf_tests.erl:49:<0.472.0>: t_produce_async_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605129 kafka_consumer_loop INCOMING 3
+    test/ekaf_tests.erl:51:<0.477.0>: t_produce_async_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605147 kafka_consumer_loop INCOMING 1
+    test/ekaf_tests.erl:53:<0.482.0>: t_produce_async_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:228:<0.203.0>: 1405493605170 kafka_consumer_loop INCOMING 11
+    test/ekaf_tests.erl:55:<0.488.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
     All 22 tests passed.
     Cover analysis: /data/repos/ekaf/.eunit/index.html
 
     Code Coverage:
     ekaf                   : 64%
-    ekaf_fsm               : 60%
-    ekaf_lib               : 64%
-    ekaf_picker            : 55%
-    ekaf_protocol          : 88%
+    ekaf_fsm               : 63%
+    ekaf_lib               : 63%
+    ekaf_picker            : 57%
+    ekaf_protocol          : 76%
     ekaf_protocol_metadata : 78%
-    ekaf_protocol_produce  : 67%
-    ekaf_server            : 36%
+    ekaf_protocol_produce  : 68%
+    ekaf_server            : 21%
     ekaf_stats             :  0%
     ekaf_sup               : 30%
-    ekaf_utils             : 13%
+    ekaf_utils             : 16%
 
-    Total                  : 53%
+    Total                  : 52%
 
-    =INFO REPORT==== 9-Apr-2014::10:01:42 ===
-    application: ekaf
-    exited: stopped
-    type: temporary
-
-
-![screenshot-eunit-kafka-consumer](/benchmarks/screenshot-eunit-kafka-consumer.png)
 
 ## License
 
@@ -380,6 +385,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Goals for v0.2 ###
+### Goals for v2.0 ###
 * Compression when publishing
 * Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/kafboy

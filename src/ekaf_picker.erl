@@ -71,11 +71,10 @@ pick_sync(Topic, Callback, _Strategy, Attempt)->
                         X,
                         {error, {retry, Attempt+1}}
                 after 5000 ->
-                        io:format("~n into timeout",[]),
                         {error,timeout}
                 end;
             _E ->
-                io:format("~p pick_sync RROR: ~p",[?MODULE,_E]),
+                error_logger:info_msg("~p pick_sync ERROR: ~p",[?MODULE,_E]),
                 _E
         end,
     case Callback of

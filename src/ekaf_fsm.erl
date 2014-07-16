@@ -37,8 +37,8 @@
 %%--------------------------------------------------------------------
 start_link(Args)->
     gen_fsm:start_link(?MODULE,Args,
-                       %[]
-                       [{debug, [trace,statistics]}]
+                       []
+                       %[{debug, [trace,statistics]}]
        ).
 
 %%====================================================================
@@ -234,8 +234,7 @@ handle_event(_Event, StateName, StateData) ->
 %%          {stop, Reason, NewStateData}                          |
 %%          {stop, Reason, Reply, NewStateData}
 %%--------------------------------------------------------------------
-handle_sync_event(Event, _From, StateName, State) ->
-    ?INFO_MSG("~n into handle_sync_event/4 ~p",[Event]),
+handle_sync_event(_Event, _From, StateName, State) ->
     Reply = ok,
     {reply, Reply, StateName, State}.
 
@@ -265,12 +264,8 @@ handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_f
            end,
     fsm_next_state(ready, Next);
 handle_info({tcp_closed,Socket}, ready, State)->
-    spawn(fun()->
-                  ekaf_lib:close_socket(Socket),
-                  %{stop, closed, State#ekaf_fsm{ socket = undefined }};
-                  ?INFO_MSG("~n disconnected from broker buffer size is ~p",[length(State#ekaf_fsm.buffer)])
-          end),
-    ekaf_lib:fsm_next_state(ready, State#ekaf_fsm{ socket = undefined }, ?EKAF_SYNC_TIMEOUT);
+    ekaf_lib:close_socket(Socket),
+    fsm_next_state(ready, State#ekaf_fsm{ socket = undefined });
 handle_info(Info, StateName, State) ->
     ?INFO_MSG("~n got info at ~p ~p state:~p",[os:timestamp(), Info, State]),
     fsm_next_state(StateName, State).
