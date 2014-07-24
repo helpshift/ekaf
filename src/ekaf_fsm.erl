@@ -213,7 +213,7 @@ ready(_Unknown, _From, State) ->
     {reply, Reply, ready, State}.
 
 connected(Event, From, State)->
-     kaf_lib:handle_reply_when_not_ready(connected, Event, From, State).
+    ekaf_lib:handle_reply_when_not_ready(connected, Event, From, State).
 bootstrapping(Event, From, State)->
     ekaf_lib:handle_reply_when_not_ready(bootstrapping, Event, From, State).
 %%--------------------------------------------------------------------
