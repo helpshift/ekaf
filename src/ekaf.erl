@@ -10,7 +10,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -endif.
 
--export([start/0, start/2]).
+-export([start/0, start/2, simple/0]).
 -export([stop/0, stop/1]).
 
 -export([prepare/1, pick/1, pick/2,
@@ -30,6 +30,14 @@ start(_Type, _Args) ->
 
 stop(_State) ->
     ok.
+
+simple()->
+    application:set_env(ekaf, ekaf_per_partition_workers, 2),
+    application:set_env(ekaf, ekaf_per_partition_workers_max, 1),
+    application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost",9908}),
+    application:set_env(ekaf, ekaf_buffer_ttl, 10),
+    application:ensure_started(kafkamocker),
+    [ application:start(App) || App <- [gproc, ranch, ekaf] ].
 
 %%--------------------------------------------------------------------
 %%% API
@@ -57,6 +65,7 @@ metadata(Topic)->
     metadata(Topic,?EKAF_SYNC_TIMEOUT).
 metadata(Topic, Timeout)->
     Worker = ?MODULE:pick(Topic),
+    ?INFO_MSG("metadata: picked ~p",[Worker]),
     case Worker of
         {error,{retry,N}} when N < 10 ->
             metadata(Topic,Timeout);

@@ -30,8 +30,8 @@ start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 start_link(Name,Args) ->
     gen_server:start_link(Name, ?MODULE, Args,
-                          []
-                          %[{debug, [trace,statistics]}]
+                          %[]
+                          [{debug, [trace,statistics]}]
                          ).
 
 %%====================================================================
@@ -48,6 +48,7 @@ start_link(Name,Args) ->
 %%--------------------------------------------------------------------
 init([Topic])->
     State = generic_init(Topic),
+    ?INFO_MSG("ekaf_server init called",[]),
     gproc:reg({n,l,Topic},[]),
     {ok, State#state{topic = Topic}};
 init(_Args) ->
@@ -107,7 +108,7 @@ handle_cast({pick, _Topic, Callback}, #state{ strategy = sticky_round_robin, wor
 handle_cast({pick, _Topic, Callback}, #state{ worker = Worker} = State) ->
     Callback(Worker),
     {noreply, State};
-handle_cast({set, worker, Worker}, #state{ worker = undefined } = State) ->
+handle_cast({set, worker, Worker}, State) ->
     erlang:send_after(1000, self(), ?EKAF_CONSTANT_REFRESH_EVERY_SEC),
     {noreply, State#state{ worker = Worker}};
 handle_cast({set, _, _}, State) ->
@@ -161,7 +162,7 @@ handle_info(<<"refresh_every_second">> = TimeoutKey,
                    State
            end,
     {noreply, Next};
-handle_info({set, worker, Worker}, #state{ worker = undefined } = State) ->
+handle_info({set, worker, Worker}, State) ->
     erlang:send_after(1000, self(), ?EKAF_CONSTANT_REFRESH_EVERY_SEC),
     {noreply, State#state{ worker = Worker}};
 handle_info({set, strategy, Value}, State)->
@@ -216,7 +217,8 @@ handle_pick({pick, Topic, _Callback}, _From, #state{ kv = PrevKV } = State)->
             ekaf:prepare(Topic),
             { {error, picking},
               Added};
-        _ ->
+        _E ->
+            ?INFO_MSG("error handle_pick error: ~p", [_E]),
             {{error, bootstrapping}, State}
     end;
 handle_pick(Pick, _From, State) ->

@@ -2,12 +2,15 @@
 
 -include("ekaf_definitions.hrl").
 
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/qlc.hrl").
+
 -export([
          %% API
          prepare/1,
          common_async/3,
          common_sync/3, common_sync/4,
-         start_child/4,
+         start_child/5,
 
          %% read configs per topic
          get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1, get_concurrency_opts/1, get_buffer_ttl/1, get_default/3, get_callbacks/1,
@@ -17,7 +20,7 @@
          open_socket/1, close_socket/1,
 
          %% fsm handling
-         handle_reply_when_not_ready/3, handle_continue_when_not_ready/3,
+         handle_reply_when_not_ready/4, handle_continue_when_not_ready/3,
          handle_connected/2,
          handle_metadata_during_bootstrapping/2, handle_metadata_during_ready/3,
          handle_async_as_batch/3, handle_sync_as_batch/4,
@@ -86,8 +89,8 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
 handle_continue_when_not_ready(StateName,_Event, State)->
     fsm_next_state(StateName, State).
 
-handle_reply_when_not_ready(_Event, _From, State)->
-    {reply, {error, {not_ready_for,_Event}}, State}.
+handle_reply_when_not_ready(During,  Event, _From, State)->
+    {reply, {error, {During,not_ready_for, Event}}, During, State}.
 
 handle_inactivity_timeout(State)->
     ?MODULE:flush(State).
@@ -205,26 +208,24 @@ handle_connected({metadata, Topic}, #ekaf_fsm{ socket = Socket} = State)->
             {stop, Reason, State}
     end.
 
-handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Topic } = State)->
-    pg2:create(Topic),
+handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Topic, messages = OfflineMessages } = State)->
+    %pg2:create(Topic),
     BrokersDict = lists:foldl(fun(Broker,Dict)->
                                        dict:append(Broker#broker.node_id,
                                                   Broker,
                                                   Dict)
                               end, dict:new(), Metadata#metadata_response.brokers),
-    Started = lists:foldl(
+    Self = self(),
+    _Started = lists:foldl(
                 fun(#topic{ name = CurrTopicName } = CurrTopic,TopicsAcc) when CurrTopicName =:= Topic ->
-                        ekaf_sup:start_child(ekaf_sup,
-                                             {Topic, {ekaf_server, start_link, [[Topic]]},
-                                              permanent, infinity, worker, []}
-                                            ),
-                        ?DEBUG_MSG("~n ~p will have ~p partitions",[Topic,length(CurrTopic#topic.partitions)]),
+                        ?INFO_MSG("~n ~p will have ~p partitions",[Topic,length(CurrTopic#topic.partitions)]),
                         TempStarted =
                             [ begin
                                   Leader = Partition#partition.leader,
                                   PartitionId = Partition#partition.id,
                                   {ok,[Broker]} = dict:find(Leader, BrokersDict),
-                                  Child = ekaf_lib:start_child(Broker, CurrTopic, Leader, PartitionId ),
+                                  Child = ekaf_lib:start_child(Broker, CurrTopic, Leader, PartitionId, Self),
+                                  ?debugFmt("start child for broker: ~p leader: ~p, partition: ~p",[Broker, Leader, PartitionId]),
                                   Child
                               end
                               || Partition <- CurrTopic#topic.partitions ],
@@ -232,8 +233,10 @@ handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Top
                     (TopicsAcc,_OtherTopic)->
                         TopicsAcc
                 end, [], Metadata#metadata_response.topics),
-    State#ekaf_fsm.reply_to ! {ready,Started},
-    {stop, normal, State#ekaf_fsm{metadata = Metadata}}.
+    %State#ekaf_fsm.reply_to ! {ready,Started},
+    {stop, normal, State#ekaf_fsm{ metadata = Metadata }}.
+    %?INFO_MSG("offline isnt empty so move to draining",[]),
+    %fsm_next_state(draining, State).
 
 handle_metadata_during_ready({metadata, Topic}, _From, #ekaf_fsm{ socket = Socket } = State)->
     CorrelationId = State#ekaf_fsm.cor_id+1,
@@ -322,12 +325,12 @@ data_to_message_set([Value|Rest], #message_set{ messages = Messages }) ->
 data_to_message_set(Value, #message_set{ size = Size, messages = Messages }) ->
     #message_set{ size = Size + 1, messages = [#message{value = Value}| Messages] }.
 
-start_child(Broker, Topic, Leader, PartitionId)->
+start_child(Broker, Topic, Leader, PartitionId, DrainFrom)->
     TopicName = Topic#topic.name,
     SizeArgs = ?MODULE:get_concurrency_opts(TopicName),
     NextPoolName = ?MODULE:get_pool_name({TopicName, Broker, PartitionId, Leader }),
 
-    WorkerArgs = [NextPoolName, {Broker#broker.host,Broker#broker.port}, TopicName, Leader, PartitionId],
+    WorkerArgs = [NextPoolName, {Broker#broker.host,Broker#broker.port}, TopicName, Leader, PartitionId, DrainFrom],
     ?DEBUG_MSG("~n  ~p partition ~p will have ~p workers",[TopicName,PartitionId, SizeArgs]),
     [
      begin

@@ -10,13 +10,14 @@
 pick_test_() ->
     {timeout, 15000, {setup,
      fun() ->
+             Topic = ?TEST_TOPIC,
              Pid = spawn( fun() -> kafka_consumer_loop([],{self(),0}) end),
              erlang:register(kafka_consumer, Pid),
              [application:load(X) ||X<- [kafkamocker, ekaf] ],
 
              % start a kafka broker on 9908
              application:set_env(kafkamocker, kafkamocker_callback, kafka_consumer),
-             application:set_env(kafkamocker, kafkamocker_bootstrap_topics, [?TEST_TOPIC]),
+             application:set_env(kafkamocker, kafkamocker_bootstrap_topics, [Topic]),
              application:set_env(kafkamocker, kafkamocker_bootstrap_broker, {"localhost",9908}),
 
              application:set_env(ekaf, ekaf_per_partition_workers_max, 1),
@@ -39,20 +40,23 @@ pick_test_() ->
 
       ,{spawn, ?_test(?debugVal(t_produce_sync_to_topic()))}
       , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_produce_sync_multi_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_produce_sync_in_batch_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_produce_sync_multi_in_batch_to_topic()))}
-      , ?_test(t_is_clean())
+      % ,{spawn, ?_test(?debugVal(t_produce_sync_multi_to_topic()))}
+      % , ?_test(t_is_clean())
+      % ,{spawn, ?_test(?debugVal(t_produce_sync_in_batch_to_topic()))}
+      % , ?_test(t_is_clean())
+      % ,{spawn, ?_test(?debugVal(t_produce_sync_multi_in_batch_to_topic()))}
+      % , ?_test(t_is_clean())
 
-      ,{spawn, ?_test(?debugVal(t_produce_async_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_produce_async_multi_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_produce_async_in_batch_to_topic()))}
-      , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_produce_async_multi_in_batch_to_topic()))}
+      % ,{spawn, ?_test(?debugVal(t_produce_async_to_topic()))}
+      % , ?_test(t_is_clean())
+      % ,{spawn, ?_test(?debugVal(t_produce_async_multi_to_topic()))}
+      % , ?_test(t_is_clean())
+      % ,{spawn, ?_test(?debugVal(t_produce_async_in_batch_to_topic()))}
+      % , ?_test(t_is_clean())
+      % ,{spawn, ?_test(?debugVal(t_produce_async_multi_in_batch_to_topic()))}
+      % , ?_test(t_is_clean())
+
+      ,{spawn, ?_test(?debugVal(t_restart_kafka()))}
       , ?_test(t_is_clean())
       ]}}.
 
@@ -191,6 +195,35 @@ t_produce_sync_in_batch_to_topic()->
     end,
     ok.
 
+t_restart_kafka()->
+    % application:stop(kafkamocker),
+    % application:start(kafkamocker),
+    % ?debugFmt("stop kafka",[]),
+    % kafkamocker_fsm:start_link(),
+    % ?debugFmt("restarted kafka",[]),
+
+    % [application:Func(ranch) || Func <- [stop,start]],
+
+    Sent = <<"33.restart kafka">>,
+    Response  = ekaf:produce_sync(?TEST_TOPIC, Sent),
+    ?assertMatch({{sent,_,_},
+                  #produce_response{ topics = [
+                                               #topic{ partitions = [
+                                                                     #partition{ error_code = 0 }
+                                                                    ]
+                                                      }
+                                              ]
+                                    }
+                 },
+                 Response),
+
+    kafka_consumer ! {flush, 1, self()},
+    receive
+        {flush, [X]}->
+            ?debugFmt("got ~p",[X]),
+            ?assertEqual(Sent, X)
+    end,
+    ok.
 
 t_is_clean()->
     ok.
