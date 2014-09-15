@@ -194,9 +194,9 @@ Current callbacks include when the buffer is flushed.
     ]}.
 
     %% mystats.erl
-    callback_flush(Topic, PartitionId, BufferLength, From, CorId)->
+    callback_flush(Topic, Broker, PartitionId, BufferLength, From, CorId)->
         spawn(fun()->
-                  %io:format("~n flush partition ~p when size was ~p corid ~p",[PartitionId, Len, CorId]),
+                  %io:format("~n flush broker: ~p partition ~p when size was ~p corid ~p worker: ~p",[Broker, PartitionId, Len, CorId, From]),
                   % eg:          flush partition 0, when size was 5025 corid 8899
 
                   % histogram gives rates/sec

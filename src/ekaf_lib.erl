@@ -271,7 +271,8 @@ flush_messages_callback(State)->
                           Topic = State#ekaf_fsm.topic,
                           PartitionId = State#ekaf_fsm.partition,
                           CorId = State#ekaf_fsm.cor_id,
-                          FlushCallbackModule:FlushCallbackFunction(Topic, PartitionId, Len, Self, CorId);
+			  Broker = State#ekaf_fsm.broker,
+                          FlushCallbackModule:FlushCallbackFunction(Topic, Broker, PartitionId, Len, Self, CorId);
                       undefined ->
                           ok
                   end
