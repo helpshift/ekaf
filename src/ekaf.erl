@@ -13,7 +13,8 @@
 -export([start/0, start/2]).
 -export([stop/0, stop/1]).
 
--export([prepare/1, prepare/2,
+-export([bootstrap/0,
+         prepare/1, prepare/2,
          pick/1, pick/2,
          publish/2, batch/2,
          produce_sync_batched/2, produce_async_batched/2,
@@ -31,6 +32,16 @@ start(_Type, _Args) ->
 
 stop(_State) ->
     ok.
+
+bootstrap()->
+    case ekaf_lib:get_bootstrap_topics() of
+        {ok, List} when is_list(List)->
+            [ begin
+                  ekaf:metadata(Topic)
+              end || Topic <- List];
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %%% API

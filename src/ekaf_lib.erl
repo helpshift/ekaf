@@ -30,10 +30,10 @@
 ]).
 
 prepare(Topic)->
-    ekaf_fsm:start_link([
-                         self(),
-                         ekaf_lib:get_bootstrap_broker(),
-                         Topic]),
+    ekaf_sup:start_child(ekaf_sup,
+                         {Topic, {ekaf_server, start_link, [[Topic]]},
+                          transient, infinity, worker, []}
+                        ),
     Pid = (catch gproc:where({n,l,Topic})),
     case Pid of
         SomePid when is_pid(SomePid)->

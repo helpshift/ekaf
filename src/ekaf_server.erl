@@ -42,6 +42,7 @@ start_link(Name,Args) ->
                           [{debug, [trace,statistics]}]
                          ).
 
+
 %%====================================================================
 %% Server functions
 %%====================================================================
@@ -73,22 +74,11 @@ init(_Args) ->
     {ok, downtime, State}.
 
 generic_init(Topic)->
-    kickoff(),
     Strategy = ekaf_lib:get_default(Topic,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
     StickyPartitionBatchSize = ekaf_lib:get_default(Topic,ekaf_sticky_partition_buffer_size, 1000),
     BootstrapBroker = ekaf_lib:get_bootstrap_broker(),
     gen_fsm:start_timer(1000,<<"refresh">>),
     #ekaf_server{strategy = Strategy, kv = dict:new(), max_buffer_size = StickyPartitionBatchSize, broker = BootstrapBroker, time = os:timestamp() }.
-
-kickoff()->
-    case ekaf_lib:get_bootstrap_topics() of
-        {ok, List} when is_list(List)->
-            [ begin
-                  ekaf:prepare(Topic)
-              end || Topic <- List];
-        _ ->
-            ok
-    end.
 
 %%--------------------------------------------------------------------
 %% Func: StateName/2

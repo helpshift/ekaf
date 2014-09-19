@@ -47,21 +47,6 @@ start_link(Args)->
 %%          ignore                              |
 %%          {stop, StopReason}
 %%--------------------------------------------------------------------
-init([ReplyTo, Broker, Topic]) ->
-    State = #ekaf_fsm{
-      topic = Topic,
-      broker = Broker,
-      reply_to = ReplyTo
-     },
-
-    ekaf_sup:start_child(ekaf_sup,
-                         {Topic, {ekaf_server, start_link, [[Topic]]},
-                          transient, infinity, worker, []}
-                        ),
-
-    State#ekaf_fsm.reply_to ! {ready,[]},
-    {ok, init, State};
-
 init([WorkerId, PoolName, Metadata, Broker, Topic, Leader, Partition]) ->
     PartitionPacket = #partition{
       id = Partition,

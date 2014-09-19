@@ -76,7 +76,7 @@ demo_callback(Event, _From, _StateName,
     case Event of
         ?EKAF_CALLBACK_FLUSH ->
             io:format("~n ~s ~w",[Stat, BufferLength]),
-            %io:format("~n ~p flush broker~w#~p when size was ~p corid ~p via:~p",[Topic, Leader, PartitionId, BufferLength, CorId, From]);
+            %io:format("~n ~p flush broker~w#~p when size was ~p corid ~p via:~p",[Topic, Leader, PartitionId, BufferLength, CorId, _From]);
             ok;
         ?EKAF_CALLBACK_FLUSHED_REPLIED ->
             case Extra of
