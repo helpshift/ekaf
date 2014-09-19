@@ -5,12 +5,15 @@ An advanced but simple to use, Kafka producer written in Erlang
 [![Build Status](https://secure.travis-ci.org/bosky101/ekaf.svg?branch=master "Build Status")](http://travis-ci.org/bosky101/ekaf)
 
 ### Highlights ###
-* A minimal implementation of a `Producer` as per 0.8 Kafka wire protocol
+* An erlang implementation of a `Producer` as per 0.8 Kafka wire protocol
 * Produce data to a Topic syncronously and asynchronously
 * Option to batche messages and customize the concurrency
 * Several lazy handling of both metadata requests as well as connection pool creation
+* Will automatically buffer when broker goes down and resend
+* Will automatically start/stop workers based on kafka broker additions/changes
+* Callbacks to instrument into your monitoring system
 
-ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing to ekaf via simple HTTP endpoints.
+ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing to ekaf via simple HTTP endpoints that handles more than 100 million events/day as of mid 2014 at Helpshift.
 
 Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/kafboy
 
@@ -146,7 +149,11 @@ Will attempt to deliver to kafka in the same order than was published by shardin
 
 #### strict_round_robin
 
-Every publish will go to a different partition. Helps for in-frequent events that must necessarily not go to the same consumer quickly.
+Every publish will go to a different partition worker. Helps for in-frequent events that must necessarily not go to the same consumer quickly.
+
+eg: if you want every messages to go to a different partition, you may need 1 worker, and use strict_round_robin
+
+eg: if you have 100 workers per partition and have chosen strict_round_robin, the first 100 events will go to partition1, the next 100 to partition 2, etc
 
 Again, you can configure the same strategy for all topics, or pick different for different topics
 
@@ -254,7 +261,7 @@ Choosing a worker is done by a worker of `ekaf_server` for every topic. It looks
         % optional
         {ekaf_partition_strategy, random},
         % if you are not bothered about the order, use random for speed
-        % else the default is ordered_round_robin
+        % else the default is random
 
         % optional
         {ekaf_callback_flush, {mystats,callback_flush}}
@@ -318,56 +325,57 @@ ekaf works well with rebar.
 
     $ rebar get-deps clean compile eunit
 
-    ==> ekaf (eunit)
-    Compiled src/ekaf.erl
-    Compiled src/ekaf_fsm.erl
-    Compiled src/ekaf_picker.erl
-    Compiled src/ekaf_protocol.erl
-    Compiled src/ekaf_lib.erl
-    Compiled src/ekaf_protocol_metadata.erl
-    Compiled src/ekaf_server.erl
-    Compiled src/ekaf_stats.erl
-    Compiled src/ekaf_sup.erl
-    Compiled src/ekaf_protocol_produce.erl
-    Compiled src/ekaf_utils.erl
-    Compiled test/ekaf_tests.erl
-    test/ekaf_tests.erl:33:<0.227.0>: t_pick_from_new_pool ( ) = ok
-    test/ekaf_tests.erl:35:<0.442.0>: t_request_metadata ( ) = ok
-    test/ekaf_tests.erl:37:<0.446.0>: t_request_info ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605064 kafka_consumer_loop INCOMING 1
-    test/ekaf_tests.erl:40:<0.450.0>: t_produce_sync_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605071 kafka_consumer_loop INCOMING 3
-    test/ekaf_tests.erl:42:<0.455.0>: t_produce_sync_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605093 kafka_consumer_loop INCOMING 1
-    test/ekaf_tests.erl:44:<0.460.0>: t_produce_sync_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605115 kafka_consumer_loop INCOMING 11
-    test/ekaf_tests.erl:46:<0.466.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605122 kafka_consumer_loop INCOMING 1
-    test/ekaf_tests.erl:49:<0.472.0>: t_produce_async_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605129 kafka_consumer_loop INCOMING 3
-    test/ekaf_tests.erl:51:<0.477.0>: t_produce_async_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605147 kafka_consumer_loop INCOMING 1
-    test/ekaf_tests.erl:53:<0.482.0>: t_produce_async_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:228:<0.203.0>: 1405493605170 kafka_consumer_loop INCOMING 11
-    test/ekaf_tests.erl:55:<0.488.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
-    All 22 tests passed.
-    Cover analysis: /data/repos/ekaf/.eunit/index.html
+        ==> ekaf (eunit)
+	Compiled src/ekaf_callbacks.erl
+	Compiled src/ekaf.erl
+	Compiled test/ekaf_tests.erl
+	Compiled src/ekaf_demo.erl
+	Compiled src/ekaf_fsm.erl
+	Compiled src/ekaf_lib.erl
+	Compiled src/ekaf_picker.erl
+	Compiled src/ekaf_protocol.erl
+	Compiled src/ekaf_protocol_metadata.erl
+	Compiled src/ekaf_protocol_produce.erl
+	Compiled src/ekaf_server_lib.erl
+	Compiled src/ekaf_socket.erl
+	Compiled src/ekaf_sup.erl
+	Compiled src/user_default.erl
+	Compiled src/ekaf_server.erl
+	Compiled src/ekaf_utils.erl
 
-    Code Coverage:
-    ekaf                   : 64%
-    ekaf_fsm               : 63%
-    ekaf_lib               : 63%
-    ekaf_picker            : 57%
-    ekaf_protocol          : 76%
-    ekaf_protocol_metadata : 78%
-    ekaf_protocol_produce  : 68%
-    ekaf_server            : 21%
-    ekaf_stats             :  0%
-    ekaf_sup               : 30%
-    ekaf_utils             : 16%
+	test/ekaf_tests.erl:83:<0.177.0>: t_pick_from_new_pool ( ) = ok
+	test/ekaf_tests.erl:85:<0.195.0>: t_request_metadata ( ) = ok
+	test/ekaf_tests.erl:87:<0.199.0>: t_request_info ( ) = ok
+	test/ekaf_tests.erl:90:<0.203.0>: t_produce_sync_to_topic ( ) = ok
+	test/ekaf_tests.erl:92:<0.209.0>: t_produce_sync_multi_to_topic ( ) = ok
+	test/ekaf_tests.erl:94:<0.215.0>: t_produce_sync_in_batch_to_topic ( ) = ok
+	test/ekaf_tests.erl:96:<0.223.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
+	test/ekaf_tests.erl:99:<0.231.0>: t_produce_async_to_topic ( ) = ok
+	test/ekaf_tests.erl:101:<0.239.0>: t_produce_async_multi_to_topic ( ) = ok
+	test/ekaf_tests.erl:103:<0.247.0>: t_produce_async_in_batch_to_topic ( ) = ok
+	test/ekaf_tests.erl:105:<0.256.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
+	test/ekaf_tests.erl:108:<0.265.0>: t_restart_kafka_broker ( ) = ok
+	test/ekaf_tests.erl:110:<0.278.0>: t_change_kafka_config ( ) = ok
+	  All 26 tests passed.
+	Cover analysis: /data/repos/ekaf/.eunit/index.html
 
-    Total                  : 52%
+	Code Coverage:
+	ekaf                   : 61%
+	ekaf_callbacks         : 100
+	ekaf_demo              :  0%
+	ekaf_fsm               : 57%
+	ekaf_lib               : 63%
+	ekaf_picker            : 68%
+	ekaf_protocol          : 70%
+	ekaf_protocol_metadata : 78%
+	ekaf_protocol_produce  : 68%
+	ekaf_server            : 39%
+	ekaf_server_lib        : 47%
+	ekaf_socket            : 47%
+	ekaf_sup               : 33%
+	ekaf_utils             : 14%
 
+	Total                  : 48%
 
 ## License
 

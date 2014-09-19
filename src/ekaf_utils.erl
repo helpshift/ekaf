@@ -107,14 +107,14 @@ decode(S) ->
 
 floor(X) ->
     case trunc(X) of
-    Y when Y > X -> Y - 1;
-    Z -> Z
+        Y when Y > X -> Y - 1;
+        Z -> Z
     end.
 
 ceiling(X) ->
     case trunc(X) of
-    Y when Y < X -> Y + 1;
-    Z -> Z
+        Y when Y < X -> Y + 1;
+        Z -> Z
     end.
 
 %%--------------------------------------------------------------------
@@ -123,24 +123,21 @@ ceiling(X) ->
 %% @end
 %%--------------------------------------------------------------------
 every_n_mins(N,Callback)->
-    T1 = os:timestamp(),
     case Callback() of
-    ok ->
-        T2 = os:timestamp(),
-        ?DEBUG_MSG("running callback took: ~p",[timer:now_diff(T2,T1)]),
-        receive
-        stop ->
-            ?INFO_MSG("stopping ~p",[self()]);
-        {from,Pid} ->
-            Pid ! {from, self(), N, Callback};
-        _ ->
-            ?MODULE:every_n_mins(N,Callback)
-        after N ->
-                        %NextN = N
-            ?MODULE:every_n_mins(N,Callback)
-        end;
-    _E ->
-        ?DEBUG_MSG("callback didnt give ok, so stopping ~p",[_E])
+        ok ->
+            receive
+                stop ->
+                    ok;
+                {from,Pid} ->
+                    Pid ! {from, self(), N, Callback};
+                _ ->
+                    ?MODULE:every_n_mins(N,Callback)
+            after N ->
+                                                %NextN = N
+                    ?MODULE:every_n_mins(N,Callback)
+            end;
+        _E ->
+            ok
     end.
 
 bang(Node, Pid, Message)->

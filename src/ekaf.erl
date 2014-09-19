@@ -10,10 +10,11 @@
 -include_lib("stdlib/include/qlc.hrl").
 -endif.
 
--export([start/0, start/2, simple/0]).
+-export([start/0, start/2]).
 -export([stop/0, stop/1]).
 
--export([prepare/1, pick/1, pick/2,
+-export([prepare/1, prepare/2,
+         pick/1, pick/2,
          publish/2, batch/2,
          produce_sync_batched/2, produce_async_batched/2,
          produce_sync/2, produce_async/2,
@@ -30,14 +31,6 @@ start(_Type, _Args) ->
 
 stop(_State) ->
     ok.
-
-simple()->
-    application:set_env(ekaf, ekaf_per_partition_workers, 2),
-    application:set_env(ekaf, ekaf_per_partition_workers_max, 1),
-    application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost",9908}),
-    application:set_env(ekaf, ekaf_buffer_ttl, 10),
-    application:ensure_started(kafkamocker),
-    [ application:start(App) || App <- [gproc, ranch, ekaf] ].
 
 %%--------------------------------------------------------------------
 %%% API
@@ -65,14 +58,13 @@ metadata(Topic)->
     metadata(Topic,?EKAF_SYNC_TIMEOUT).
 metadata(Topic, Timeout)->
     Worker = ?MODULE:pick(Topic),
-    ?INFO_MSG("metadata: picked ~p",[Worker]),
     case Worker of
         {error,{retry,N}} when N < 10 ->
             metadata(Topic,Timeout);
         {error,_}=E->
             E;
         _ ->
-            gen_fsm:sync_send_event(Worker, {metadata, Topic}, Timeout)
+            gen_fsm:sync_send_event(Worker, metadata, Timeout)
     end.
 
 info(Topic)->
@@ -90,6 +82,8 @@ info(Topic,Timeout)->
 
 prepare(Topic)->
     ekaf_lib:prepare(Topic).
+prepare(Topic, Callback)->
+    ekaf_lib:prepare(Topic, Callback).
 
 pick(Topic)->
     %% synchronous

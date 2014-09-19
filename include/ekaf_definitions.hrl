@@ -9,17 +9,36 @@
 -define(EKAF_DEFAULT_PARTITION_STRATEGY          , ordered_round_robin).
 -define(EKAF_SYNC_TIMEOUT                        , 1000).
 
+%%======================================================================
+%% ekaf specific constants
+%%======================================================================
 -define(EKAF_PACKET_IGNORE                       , 0).
 -define(EKAF_PACKET_ENCODE_METADATA              , 1).
 -define(EKAF_PACKET_DECODE_METADATA              , 2).
 -define(EKAF_PACKET_ENCODE_PRODUCE               , 3).
 -define(EKAF_PACKET_DECODE_PRODUCE               , 4).
+-define(EKAF_PACKET_DECODE_PRODUCE_ASYNC_BATCH   , 5).
 
+%%======================================================================
+%% Kafka specific Constants
+%%======================================================================
 -define(API_VERSION                              , 0).
 -define(PRODUCE_REQUEST                          , 0).
 -define(METADATA_REQUEST                         , 3).
 
 -define(EKAF_CONSTANT_REFRESH_EVERY_SEC          , <<"refresh_every_second">>).
+
+%%======================================================================
+%% Optional {Mod,Func} callbacks that can be set as an app env to ekaf
+%%======================================================================
+-define(EKAF_CALLBACK_FLUSH                     , <<"ekaf_callback_flush">>).
+-define(EKAF_CALLBACK_FLUSHED_REPLIED           , <<"ekaf_callback_flushed_replied">>).
+-define(EKAF_CALLBACK_WORKER_DOWN               , <<"ekaf_callback_worker_down">>).
+-define(EKAF_CALLBACK_WORKER_UP                 , <<"ekaf_callback_worker_up">>).
+-define(EKAF_CALLBACK_DOWNTIME_SAVED            , <<"ekaf_callback_downtime_saved">>).
+-define(EKAF_CALLBACK_DOWNTIME_REPLAYED         , <<"ekaf_callback_downtime_replayed">>).
+-define(EKAF_CALLBACK_TIME_TO_CONNECT           , <<"ekaf_callback_time_to_connect">>).
+-define(EKAF_CALLBACK_TIME_DOWN                 , <<"ekaf_callback_time_down">>).
 
 %%======================================================================
 %% Macros
@@ -72,7 +91,8 @@
 %% Records
 %%======================================================================
 %% Used by workers
--record(ekaf_fsm, { topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = true::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, flush_callback, messages=[]::list(), drain::pid() }).
+-record(ekaf_server, {broker, strategy, worker, workers=[], topic, messages=[]::list(), socket, cor_id=0::integer(), max_buffer_size::integer(), kv, ctr=0::integer(), metadata, ongoing_metadata=false::boolean(), time}).
+-record(ekaf_fsm, { id::integer(), topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = true::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, time}).
 
 
 %% Requests
