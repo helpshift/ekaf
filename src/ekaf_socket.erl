@@ -15,8 +15,7 @@
          %% send/receive
          fork/3,
          send_then_recv/2,
-         recv_incoming_metadata/3,
-         recv_incoming_produce/4
+         recv_incoming_metadata/3
         ]).
 
 %%====================================================================
@@ -46,7 +45,7 @@ send_then_recv(Fsm, Socket)->
         {send, produce_sync, Request} ->
             case gen_tcp:send(Socket, Request) of
                 ok ->
-                    recv_incoming_produce(Fsm, Socket, Request, <<>>);
+                    ok;
                 Reason ->
                     ?INFO_MSG("send_then_recv produce cant handle ~p",[Reason]),
                     gen_fsm:send_event(Fsm, {stop, Reason})
@@ -90,24 +89,6 @@ recv_incoming_metadata(Fsm, Socket, _Acc)->
         Event ->
             gen_tcp:controlling_process(Socket, Fsm),
             ?INFO_MSG("got ~p fwd2 to ~p",[Event,Fsm]),
-            gen_fsm:send_event(Fsm, Event)
-    end.
-
-recv_incoming_produce(Fsm, Socket, _Messages, _Acc)->
-    %% todo: retry sending if error
-    %% todo: retry sending if no ack, currently it stays in the kv
-    receive
-        {tcp, _, Packet} = Event->
-            case Packet of
-                <<_CorrelationId:32, _/binary>>  ->
-                    ok;
-                OtherPacket ->
-                    ?INFO_MSG("recv_incoming_produce cant handle ~p, so send back to parent",[OtherPacket]),
-                    gen_tcp:controlling_process(Socket, Fsm),
-                    gen_fsm:send_event(Fsm, Event)
-            end;
-        Event ->
-            gen_tcp:controlling_process(Socket, Fsm),
             gen_fsm:send_event(Fsm, Event)
     end.
 
