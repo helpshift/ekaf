@@ -43,11 +43,11 @@ demo()->
     %% SET CALLBACKS
     %% here are the various callbacks that you can listen to
     %% more info in the include/ekaf_definitions.hrl file
-    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSH,  {ekaf_demo, simple_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSHED_REPLIED, {ekaf_demo, simple_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_DOWN, {ekaf_demo, simple_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_UP, {ekaf_demo, simple_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_SAVED, {ekaf_demo, simple_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSH,  {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSHED_REPLIED, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_DOWN, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_UP, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_SAVED, {ekaf_demo, demo_callback}),
     application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_REPLAYED, {ekaf_demo, demo_callback}),
     application:set_env(ekaf, ?EKAF_CALLBACK_TIME_TO_CONNECT, {ekaf_demo, demo_callback}),
     application:set_env(ekaf, ?EKAF_CALLBACK_TIME_DOWN, {ekaf_demo, demo_callback}),

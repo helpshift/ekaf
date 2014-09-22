@@ -90,6 +90,41 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
 
 See `test/ekaf_tests.erl` for more
 
+## Quickstart
+
+Here's a quick ekaf demo to show broker resiliance, buffering, and instrumenting with callbacks.
+
+on terminal 1
+
+    git clone https://github.com/helpshift/ekaf
+    rebar get-deps compile
+    cd deps/kafkamocker
+    rebar compile skip_deps=true && erl -pa ebin -pa deps/*/ebin -s kafkamocker_demo
+    kafka_consumer_loop INCOMING [<<"1">>,<<"2">>,<<"3">>,<<"4">>,<<"5">>,<<"6">>,
+                              <<"7">>,<<"8">>,<<"9">>,<<"10">>,<<"11">>,
+                              <<"12">>,<<"13">>,<<"14">>,<<"15">>,<<"16">>,
+                              <<"17">>,<<"18">>,<<"19">>,<<"20">>]
+
+and on terminal 2
+
+    cd ekaf
+    rebar compile skip_deps=true && erl -pa ebin -pa deps/*/ebin -s ekaf_demo
+    > request 1
+    > ekaf.ekaf_callback_downtime_saved => 1
+    > ekaf.mainbroker_unreachable => 1
+    > ....
+    > request 20
+    > ekaf.ekaf_callback_downtime_saved => 1
+    > ekaf.mainbroker_unreachable => 1
+    > ekaf.ekaf_callback_time_down => 59280
+    > ekaf.ekaf_callback_time_to_connect.broker1.0 => 1
+    > ekaf.ekaf_callback_time_to_connect.broker1.0 => 1
+    > ekaf.ekaf_callback_downtime_replayed => 1 during ready
+    > ekaf.ekaf_callback_worker_up.broker1.0 1
+    > ekaf.ekaf_callback_worker_up.broker1.0 1
+    > ekaf.ekaf_callback_flush.broker1.0 20
+    > ekaf.ekaf_callback_flushed_replied.broker1.0.diff 0
+
 ### Tunable Concurrency ###
 Each worker represents a connection to a broker + topic + partition combination.
 You can decide how many workers to start for each partition
@@ -326,56 +361,56 @@ ekaf works well with rebar.
     $ rebar get-deps clean compile eunit
 
         ==> ekaf (eunit)
-	Compiled src/ekaf_callbacks.erl
-	Compiled src/ekaf.erl
-	Compiled test/ekaf_tests.erl
-	Compiled src/ekaf_demo.erl
-	Compiled src/ekaf_fsm.erl
-	Compiled src/ekaf_lib.erl
-	Compiled src/ekaf_picker.erl
-	Compiled src/ekaf_protocol.erl
-	Compiled src/ekaf_protocol_metadata.erl
-	Compiled src/ekaf_protocol_produce.erl
-	Compiled src/ekaf_server_lib.erl
-	Compiled src/ekaf_socket.erl
-	Compiled src/ekaf_sup.erl
-	Compiled src/user_default.erl
-	Compiled src/ekaf_server.erl
-	Compiled src/ekaf_utils.erl
+    Compiled src/ekaf_callbacks.erl
+    Compiled src/ekaf.erl
+    Compiled test/ekaf_tests.erl
+    Compiled src/ekaf_demo.erl
+    Compiled src/ekaf_fsm.erl
+    Compiled src/ekaf_lib.erl
+    Compiled src/ekaf_picker.erl
+    Compiled src/ekaf_protocol.erl
+    Compiled src/ekaf_protocol_metadata.erl
+    Compiled src/ekaf_protocol_produce.erl
+    Compiled src/ekaf_server_lib.erl
+    Compiled src/ekaf_socket.erl
+    Compiled src/ekaf_sup.erl
+    Compiled src/user_default.erl
+    Compiled src/ekaf_server.erl
+    Compiled src/ekaf_utils.erl
 
-	test/ekaf_tests.erl:83:<0.177.0>: t_pick_from_new_pool ( ) = ok
-	test/ekaf_tests.erl:85:<0.195.0>: t_request_metadata ( ) = ok
-	test/ekaf_tests.erl:87:<0.199.0>: t_request_info ( ) = ok
-	test/ekaf_tests.erl:90:<0.203.0>: t_produce_sync_to_topic ( ) = ok
-	test/ekaf_tests.erl:92:<0.209.0>: t_produce_sync_multi_to_topic ( ) = ok
-	test/ekaf_tests.erl:94:<0.215.0>: t_produce_sync_in_batch_to_topic ( ) = ok
-	test/ekaf_tests.erl:96:<0.223.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
-	test/ekaf_tests.erl:99:<0.231.0>: t_produce_async_to_topic ( ) = ok
-	test/ekaf_tests.erl:101:<0.239.0>: t_produce_async_multi_to_topic ( ) = ok
-	test/ekaf_tests.erl:103:<0.247.0>: t_produce_async_in_batch_to_topic ( ) = ok
-	test/ekaf_tests.erl:105:<0.256.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
-	test/ekaf_tests.erl:108:<0.265.0>: t_restart_kafka_broker ( ) = ok
-	test/ekaf_tests.erl:110:<0.278.0>: t_change_kafka_config ( ) = ok
-	  All 26 tests passed.
-	Cover analysis: /data/repos/ekaf/.eunit/index.html
+    test/ekaf_tests.erl:83:<0.177.0>: t_pick_from_new_pool ( ) = ok
+    test/ekaf_tests.erl:85:<0.195.0>: t_request_metadata ( ) = ok
+    test/ekaf_tests.erl:87:<0.199.0>: t_request_info ( ) = ok
+    test/ekaf_tests.erl:90:<0.203.0>: t_produce_sync_to_topic ( ) = ok
+    test/ekaf_tests.erl:92:<0.209.0>: t_produce_sync_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:94:<0.215.0>: t_produce_sync_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:96:<0.223.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:99:<0.231.0>: t_produce_async_to_topic ( ) = ok
+    test/ekaf_tests.erl:101:<0.239.0>: t_produce_async_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:103:<0.247.0>: t_produce_async_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:105:<0.256.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:108:<0.265.0>: t_restart_kafka_broker ( ) = ok
+    test/ekaf_tests.erl:110:<0.278.0>: t_change_kafka_config ( ) = ok
+      All 26 tests passed.
+    Cover analysis: /data/repos/ekaf/.eunit/index.html
 
-	Code Coverage:
-	ekaf                   : 61%
-	ekaf_callbacks         : 100
-	ekaf_demo              :  0%
-	ekaf_fsm               : 57%
-	ekaf_lib               : 63%
-	ekaf_picker            : 68%
-	ekaf_protocol          : 70%
-	ekaf_protocol_metadata : 78%
-	ekaf_protocol_produce  : 68%
-	ekaf_server            : 39%
-	ekaf_server_lib        : 47%
-	ekaf_socket            : 47%
-	ekaf_sup               : 33%
-	ekaf_utils             : 14%
+    Code Coverage:
+    ekaf                   : 61%
+    ekaf_callbacks         : 100
+    ekaf_demo              :  0%
+    ekaf_fsm               : 57%
+    ekaf_lib               : 63%
+    ekaf_picker            : 68%
+    ekaf_protocol          : 70%
+    ekaf_protocol_metadata : 78%
+    ekaf_protocol_produce  : 68%
+    ekaf_server            : 39%
+    ekaf_server_lib        : 47%
+    ekaf_socket            : 47%
+    ekaf_sup               : 33%
+    ekaf_utils             : 14%
 
-	Total                  : 48%
+    Total                  : 48%
 
 ## License
 
