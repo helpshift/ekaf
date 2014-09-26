@@ -107,8 +107,7 @@ handle_inactivity_timeout(State)->
 flush(#ekaf_fsm{ buffer = []} = State)->
     State;
 flush(PrevState)->
-    {Messages,State1} = ekaf_lib:pop_messages_from_buffer([],PrevState),
-    State = ekaf_lib:add_messages_to_sent(Messages,State1),
+    {Messages,State} = ekaf_lib:pop_messages_from_buffer([],PrevState),
     NextState = spawn_inactivity_timeout(Messages,State),
     flush_messages_callback(NextState),
     NextState#ekaf_fsm{ last_known_size = 0 }.
@@ -152,9 +151,7 @@ handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
     FinalMessages = case Messages of Bin when is_binary(Bin)-> Bin; _ -> lists:reverse(Messages) end,
     {MessageSets,State} = ekaf_lib:cursor(BatchEnabled, FinalMessages, PrevState),
     spawn_async_as_batch(BatchEnabled,MessageSets, State),
-    Self = self(),
-    NextState = State#ekaf_fsm{kv = dict:append({cor_id, State#ekaf_fsm.cor_id}, {?EKAF_PACKET_DECODE_PRODUCE_ASYNC_BATCH, Self}, State#ekaf_fsm.kv ) },
-    fsm_next_state(ready, NextState, NextState#ekaf_fsm.buffer_ttl).
+    fsm_next_state(ready, State, State#ekaf_fsm.buffer_ttl).
 
 spawn_async_as_batch(_,[],_)->
     ok;

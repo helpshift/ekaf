@@ -201,6 +201,9 @@ ready(buffer_size, _From, State) ->
 ready(info, _From, State) ->
     Reply = State,
     {reply, Reply, ready, State};
+ready(kv, _From, State) ->
+    Reply = State#ekaf_fsm.kv,
+    {reply, Reply, ready, State};
 ready(_Unknown, _From, State) ->
     ?INFO_MSG("ready/3 cant handle ~p",[_Unknown]),
     Reply = ok,
