@@ -139,6 +139,10 @@ downtime(_Msg, State) ->
 %                {partition,0,0,3,[{replica,3}],[{isr,3}]}]}]}
 connected({metadata, resp, _} = Event, #ekaf_server{ worker = _Worker} = State)->
     Next = ekaf_server_lib:handle_metadata_during_bootstrapping(Event, State),
+    RequeryMetadata = ekaf_lib:get_default(any,
+                                           ?EKAF_CONSTANT_PULL_FOR_CHANGES_TIMEOUT,
+                                           ?EKAF_DEFAULT_PULL_FOR_CHANGES_TIMEOUT),
+    gen_fsm:start_timer(RequeryMetadata, <<"reconnect">>),
     fsm_next_state(ready, Next#ekaf_server{ ongoing_metadata = false });
 connected({produce_async, Messages}, State)->
     ekaf_server_lib:save_messages(connected, State, Messages);

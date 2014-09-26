@@ -6,8 +6,9 @@
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS       , 100).
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX   , 100).
 -define(EKAF_DEFAULT_BUFFER_TTL                  , 5000).
--define(EKAF_DEFAULT_PARTITION_STRATEGY          , ordered_round_robin).
--define(EKAF_SYNC_TIMEOUT                        , 1000).
+-define(EKAF_DEFAULT_PARTITION_STRATEGY          , random).
+-define(EKAF_DEFAULT_PULL_FOR_CHANGES_TIMEOUT    , 60000).
+-define(EKAF_SYNC_TIMEOUT                        , 5000).
 
 %%======================================================================
 %% ekaf specific constants
@@ -27,6 +28,8 @@
 -define(METADATA_REQUEST                         , 3).
 
 -define(EKAF_CONSTANT_REFRESH_EVERY_SEC          , <<"refresh_every_second">>).
+-define(EKAF_CONSTANT_PULL_FOR_CHANGES_TIMEOUT   , <<"pull_for_changes_timeout">>).
+
 
 %%======================================================================
 %% Optional {Mod,Func} callbacks that can be set as an app env to ekaf

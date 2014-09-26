@@ -18,7 +18,7 @@
          handle_reply_when_not_ready/4,
          handle_metadata_during_ready/2,
          handle_async_as_batch/3, handle_sync_as_batch/4,
-         handle_inactivity_timeout/1,
+         handle_inactivity_timeout/1, fsm_next_state/2, fsm_next_state/3,
 
          %% manipulating state
          cursor/3,flush/1,
@@ -416,6 +416,6 @@ get_pool_name({Topic, Broker, PartitionId, Leader })->
     ekaf_utils:btoatom(ekaf_utils:itob(erlang:phash2(NextPoolName))).
 
 fsm_next_state(StateName,State)->
-    ekaf_fsm:fsm_next_state(StateName, State).
+    {next_state, StateName, State}.
 fsm_next_state(StateName, State, Timeout)->
-    ekaf_fsm:fsm_next_state(StateName, State, Timeout).
+    {next_state, StateName, State, Timeout}.
