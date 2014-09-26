@@ -93,7 +93,13 @@ save_messages(StateName, #ekaf_server{ messages = OfflineMessages, worker = Work
                 _ ->
                     ok
             end,
-            fsm_next_state(StateName, State#ekaf_server{ messages = [Messages|OfflineMessages] } )
+            NextMessages = case Messages of
+                               SomeList when is_list(SomeList)->
+                                   Messages ++ OfflineMessages;
+                               _ ->
+                                   [Messages|OfflineMessages]
+                           end,
+            fsm_next_state(StateName, State#ekaf_server{ messages = NextMessages } )
     end.
 
 send_messages(StateName, #ekaf_server{ topic = Topic } = State, Messages)->
