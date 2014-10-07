@@ -6,11 +6,6 @@
 %%--------------------------------------------------------------------
 -include("ekaf_definitions.hrl").
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--include_lib("stdlib/include/qlc.hrl").
--endif.
-
 -define(HIBERNATE_TIMEOUT, undefined).
 -define(KEEPALIVE_INTERVAL, 60*1000).
 %%--------------------------------------------------------------------
@@ -22,9 +17,10 @@
          handle_event/3,
          handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 %% states
--export([connected/2, connected/3,       %% Connection with the broker established
-         bootstrapping/2, bootstrapping/3,  %% Asked for metadata and waiting
+-export([init/2, init/3,
+         connecting/2, connecting/3,
          ready/2, ready/3,    %% Got metadata and ready to send
+         downtime/2, downtime/3,
          fsm_next_state/2, fsm_next_state/3
          ]).
 
@@ -51,64 +47,39 @@ start_link(Args)->
 %%          ignore                              |
 %%          {stop, StopReason}
 %%--------------------------------------------------------------------
-init([ReplyTo, Broker, Topic]) ->
-    ?DEBUG_MSG("~n open socket to ~p",[Broker]),
-    case ekaf_lib:open_socket(Broker) of
-        {ok,Socket} ->
-            State = #ekaf_fsm{
-              topic = Topic,
-              broker = Broker,
-              socket = Socket,
-              reply_to = ReplyTo
-             },
-            gen_fsm:send_event(self(), {metadata, State#ekaf_fsm.topic}),
-            {ok, connected, State};
-        {error, Reason} ->
-            ?ERROR_MSG("~p",[Reason]),
-            {stop, Reason}
-    end;
-
-init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
-    ?DEBUG_MSG("~n open ~p with Broker ~p for leader ~p partition ~p",[Topic,Broker,Leader,Partition]),
-    case ekaf_lib:open_socket(Broker) of
-        {ok,Socket} ->
-            PartitionPacket = #partition{
-              id = Partition,
-              leader = Leader
-              %% each messge goes in a different messageset, even for batching
-             },
-            TopicPacket = #topic{
-              name = Topic,
-              partitions =
-              [PartitionPacket]},
-            ProducePacket = #produce_request{
-              timeout=100,
-              topics= [TopicPacket]
-             },
-            BufferTTL = ekaf_lib:get_buffer_ttl(Topic),
-            gen_fsm:start_timer(BufferTTL,<<"refresh">>),
-            State = #ekaf_fsm{
-              pool = PoolName,
-              topic = Topic,
-              broker = Broker,
-              leader = Leader,
-              partition = Partition,
-              socket = Socket,
-              max_buffer_size = ekaf_lib:get_max_buffer_size(Topic),
-              buffer_ttl = BufferTTL,
-              kv = dict:new(),
-              partition_packet = PartitionPacket,
-              topic_packet = TopicPacket,
-              produce_packet = ProducePacket,
-              flush_callback = ekaf_lib:get_callbacks(flush)
-             },
-
-            gen_fsm:send_event(self(), ping),
-            {ok, ready, State};
-        {error, Reason} ->
-            ?ERROR_MSG("~p",[Reason]),
-            {stop, Reason}
-    end.
+init([WorkerId, PoolName, Metadata, Broker, Topic, Leader, Partition]) ->
+    PartitionPacket = #partition{
+      id = Partition,
+      leader = Leader
+      %% each messge goes in a different messageset, even for batching
+     },
+    TopicPacket = #topic{
+      name = Topic,
+      partitions =
+      [PartitionPacket]},
+    ProducePacket = #produce_request{
+      timeout=100,
+      topics= [TopicPacket]
+     },
+    BufferTTL = ekaf_lib:get_buffer_ttl(Topic),
+    State = #ekaf_fsm{
+      id = WorkerId,
+      pool = PoolName,
+      metadata = Metadata,
+      topic = Topic,
+      broker = Broker,
+      leader = Leader,
+      partition = Partition,
+      max_buffer_size = ekaf_lib:get_max_buffer_size(Topic),
+      buffer_ttl = BufferTTL,
+      kv = dict:new(),
+      partition_packet = PartitionPacket,
+      topic_packet = TopicPacket,
+      produce_packet = ProducePacket,
+      time = os:timestamp()
+     },
+    reconnection_attempt(),
+    {ok, connecting, State}.
 
 %%--------------------------------------------------------------------
 %% Func: StateName/2
@@ -116,33 +87,33 @@ init([PoolName, Broker, Topic, Leader, Partition]=_Args) ->
 %%          {next_state, NextStateName, NextStateData, Timeout} |
 %%          {stop, Reason, NewStateData}
 %%--------------------------------------------------------------------
-connected({metadata,_Topic}=Event, State) ->
-    ekaf_lib:handle_connected(Event, State);
+init(_Event, State)->
+    ?INFO_MSG("init/2 cant handle ~p",[_Event]),
+    fsm_next_state(init, State).
 
-connected(_Event, State)->
-    ekaf_lib:handle_continue_when_not_ready(connected,_Event,State).
+connecting(connect, #ekaf_fsm{broker = Broker, buffer_ttl = BufferTTL, time = T1} = State)->
+    case ekaf_socket:open(Broker) of
+        {ok,Socket} ->
+            T2 = os:timestamp(),
+            ekaf_callbacks:call(?EKAF_CALLBACK_TIME_TO_CONNECT, self(), connecting, State, {ok,timer:now_diff(T2, T1)}),
+            gen_fsm:send_event(self(), ping),
+            gen_fsm:start_timer(BufferTTL,<<"refresh">>),
+            fsm_next_state(ready, State#ekaf_fsm{ socket = Socket });
+        {error, _Reason} ->
+            {stop, normal, State}
+            %ekaf_callbacks:worker_down_callback(self(), connecting, State, Reason),
+            %gen_fsm:start_timer(1000,connect),
+            %fsm_next_state(connecting, State)
+    end;
+connecting({timeout, Timer, connect}, State)->
+    gen_fsm:cancel_timer(Timer),
+    gen_fsm:start_timer(1000,connect),
+    reconnection_attempt(),
+    fsm_next_state(connecting, State);
+connecting(Event, State) ->
+    ?INFO_MSG("connecting/2 cant handle ~p",[Event]),
+    fsm_next_state(connecting, State).
 
-% {metadata,0,
-%       [{broker,2,<<"vagrant-ubuntu-precise-64">>,9092},
-%        {broker,1,<<"vagrant-ubuntu-precise-64">>,9091},
-%        {broker,3,<<"vagrant-ubuntu-precise-64">>,9093}],
-%       [{topic,<<"a3">>,undefined,
-%               [{partition,1,0,1,
-%                           [{replica,2},{replica,1}],
-%                           [{isr,2},{isr,1}]},
-%                {partition,0,0,3,
-%                           [{replica,1},{replica,3}],
-%                           [{isr,1},{isr,3}]}]},
-%        {topic,<<"a2">>,undefined,
-%               [{partition,1,0,2,[{replica,2}],[{isr,2}]},
-%                {partition,0,0,1,[{replica,1}],[{isr,1}]}]},
-%        {topic,<<"a1">>,undefined,
-%               [{partition,1,0,1,[{replica,1}],[{isr,1}]},
-%                {partition,0,0,3,[{replica,3}],[{isr,3}]}]}]}
-bootstrapping({metadata,Metadata}, State)->
-    ekaf_lib:handle_metadata_during_bootstrapping({metadata,Metadata}, State);
-bootstrapping(_Event, State)->
-    ekaf_lib:handle_continue_when_not_ready(bootstrapping,_Event,State).
 
 ready({produce_async, _Messages} = Async, PrevState)->
     ekaf_lib:handle_async_as_batch(false, Async, PrevState);
@@ -150,8 +121,7 @@ ready({produce_async_batched, _Messages}= Async, PrevState)->
     ekaf_lib:handle_async_as_batch(true, Async, PrevState);
 ready(ping, #ekaf_fsm{ topic = Topic } = State)->
     pg2:join(Topic,self()),
-    %gen_server:cast(erlang:whereis(ekaf_lib:get_topic_as_atom(Topic)), {set,worker,self()}),
-    gproc:send({n,l,Topic}, {set, worker, self()}),
+    gproc:send({n,l,Topic}, {worker, up, self(), ready, State, undefined}),
     fsm_next_state(ready,State);
 ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
     Len = length(Buffer),
@@ -181,6 +151,21 @@ ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_si
     fsm_next_state(ready, State#ekaf_fsm{ to_buffer = true, last_known_size = Len, cor_id = CorId });
 ready(_Event, State)->
     fsm_next_state(ready,State).
+
+downtime({timeout, Timer, <<"refresh">>}, State)->
+    gen_fsm:cancel_timer(Timer),
+    fsm_next_state(downtime, State);
+downtime(Event, State)->
+    case (catch gproc:where({n,l,State#ekaf_fsm.topic})) of
+        Standby when is_pid(Standby)->
+            ?INFO_MSG("downtime/2 cant handle ~p, send to ~p",[Event, Standby]),
+            gen_fsm:send_event(Standby, Event);
+        _ ->
+            ok
+    end,
+    fsm_next_state(downtime, State).
+
+
 %%--------------------------------------------------------------------
 %% Func: StateName/3
 %% Returns: {next_state, NextStateName, NextStateData}            |
@@ -190,8 +175,16 @@ ready(_Event, State)->
 %%          {stop, Reason, NewStateData}                          |
 %%          {stop, Reason, Reply, NewStateData}
 %%--------------------------------------------------------------------
-ready({metadata, Topic}, From, State)->
-    ekaf_lib:handle_metadata_during_ready({metadata,Topic}, From, State);
+init(_Event, _From, State)->
+    ?INFO_MSG("init/3 cant handle ~p",[_Event]),
+    fsm_next_state(init, State).
+
+connecting(Event, _From, State) ->
+    ?INFO_MSG("connecting/3 cant handle ~p",[Event]),
+    fsm_next_state(connecting, State).
+
+ready(metadata, From, State)->
+    ekaf_lib:handle_metadata_during_ready(From, State);
 ready({produce_sync, _Messages}=Sync, From, PrevState)->
     ekaf_lib:handle_sync_as_batch(false, Sync, From, PrevState);
 ready({produce_sync_batched, _} = Sync, From, PrevState)->
@@ -208,14 +201,18 @@ ready(buffer_size, _From, State) ->
 ready(info, _From, State) ->
     Reply = State,
     {reply, Reply, ready, State};
+ready(kv, _From, State) ->
+    Reply = State#ekaf_fsm.kv,
+    {reply, Reply, ready, State};
 ready(_Unknown, _From, State) ->
+    ?INFO_MSG("ready/3 cant handle ~p",[_Unknown]),
     Reply = ok,
     {reply, Reply, ready, State}.
 
-connected(Event, From, State)->
-    ekaf_lib:handle_reply_when_not_ready(connected, Event, From, State).
-bootstrapping(Event, From, State)->
-    ekaf_lib:handle_reply_when_not_ready(bootstrapping, Event, From, State).
+downtime(Event, _From, State)->
+    ?INFO_MSG("downtime/3 doesnt know to handle ~p",[Event]),
+    fsm_next_state(downtime, State).
+
 %%--------------------------------------------------------------------
 %% Func: handle_event/3
 %% Returns: {next_state, NextStateName, NextStateData}          |
@@ -244,30 +241,38 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%          {next_state, NextStateName, NextStateData, Timeout} |
 %%          {stop, Reason, NewStateData}
 %%--------------------------------------------------------------------
-handle_info({tcp, _Port, <<CorrelationId:32,_/binary>> = Packet}, ready, #ekaf_fsm{ kv = KV } = State) ->
+handle_incoming(<<CorrelationId:32,_/binary>> = Packet, #ekaf_fsm{ kv = KV } = State)->
     Found = dict:find({cor_id,CorrelationId}, KV),
-    Next = case Found of
-               {ok,[{Type,From}|_Rest]}->
-                   case Type of
-                       ?EKAF_PACKET_DECODE_PRODUCE ->
-                           Reply = {{sent, State#ekaf_fsm.partition, self()},
-                                    ekaf_protocol:decode_produce_response(Packet)},
-                           gen_fsm:reply(From,Reply);
-                       _TE ->
-                           ?INFO_MSG("~n EKAF got ~p so ignore",[_TE]),
-                           ok
-                   end,
-                   State#ekaf_fsm{ kv = dict:erase({cor_id,CorrelationId}, KV) };
-               _E->
-                   ?INFO_MSG("~n found ~p so ignore",[_E]),
-                   State
-           end,
+    case Found of
+        {ok,[{Type,From}|_Rest]}->
+            case Type of
+                ?EKAF_PACKET_DECODE_PRODUCE ->
+                    Reply = {{sent, State#ekaf_fsm.partition, self()},
+                             ekaf_protocol:decode_produce_response(Packet)},
+                    gen_fsm:reply(From, Reply);
+                ?EKAF_PACKET_DECODE_PRODUCE_ASYNC_BATCH ->
+                    ekaf_lib:flushed_messages_replied_callback(State, Packet),
+                    ok;
+                _TE ->
+                    ok
+            end,
+            State#ekaf_fsm{ kv = dict:erase({cor_id,CorrelationId}, KV) };
+        _E->
+            State
+    end.
+
+handle_info({tcp, _Port, Packet}, ready, State) ->
+    Next = handle_incoming(Packet, State),
     fsm_next_state(ready, Next);
-handle_info({tcp_closed,Socket}, ready, State)->
-    ekaf_lib:close_socket(Socket),
-    fsm_next_state(ready, State#ekaf_fsm{ socket = undefined });
+handle_info({tcp_closed,_Socket}, ready, State)->
+    %% important to stop here
+    {stop, normal, State#ekaf_fsm{ time = os:timestamp() }};
+
+handle_info({info,From}, StateName, State)->
+    From ! {StateName, State},
+    fsm_next_state(StateName, State);
 handle_info(Info, StateName, State) ->
-    ?INFO_MSG("~n got info at ~p ~p state:~p",[os:timestamp(), Info, State]),
+    ?INFO_MSG("handle_info cant handle ~p during ~p",[Info, StateName]),
     fsm_next_state(StateName, State).
 
 %%--------------------------------------------------------------------
@@ -275,10 +280,20 @@ handle_info(Info, StateName, State) ->
 %% Purpose: Shutdown the fsm
 %% Returns: any
 %%--------------------------------------------------------------------
-terminate(_Reason, _StateName, State) ->
-    spawn(fun()->
-                  ekaf_lib:close_socket(State#ekaf_fsm.socket)
-          end),
+terminate(Reason, StateName,  #ekaf_fsm{ id = WorkerId, socket = Socket, topic = Topic, buffer = Buffer } = State)->
+    Self = self(),
+    ekaf_socket:close(Socket),
+
+    (catch gproc:send({n,l,Topic}, {worker, down, self(), WorkerId, StateName, State, Reason})),
+
+    case Buffer of
+        [] ->
+            ok;
+        _ ->
+            io:format("~n ~p stopping since ~p when buffer had ~p items",[Self, Reason, Buffer]),
+            gproc:send({n,l,Topic}, {add, queue, Buffer})
+    end,
+    pg2:leave(Topic,self()),
     ok.
 %%--------------------------------------------------------------------
 %% Func: code_change/4
@@ -296,3 +311,6 @@ fsm_next_state(StateName, StateData)->
 
 fsm_next_state(StateName, StateData, Timeout)->
     {next_state, StateName, StateData, Timeout}.
+
+reconnection_attempt()->
+    gen_fsm:send_event(self(), connect).

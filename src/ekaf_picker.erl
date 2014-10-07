@@ -1,8 +1,9 @@
 -module(ekaf_picker).
 -export([pick/1, pick/2, pick/3, pick/4]).
--include("ekaf_definitions.hrl").
 -export([pick_sync/3, pick_sync/4,
-        pick_async/2]).
+        pick_async/2, join_group_if_not_present/2]).
+
+-include("ekaf_definitions.hrl").
 
 %% Each topic gets its own gen_server to
 %%  pick a partition worker
@@ -39,16 +40,25 @@ pick(Topic, Callback, Mode, Strategy) ->
     end.
 
 pick_async(Topic,Callback)->
-    %RegName = ekaf_lib:get_topic_as_atom(Topic),
-    RegName = gproc:where({n,l,Topic}),
+    RegName = (catch gproc:where({n,l,Topic})),
+    TempCallback = fun(_With)->
+                           Pid = spawn(fun()->
+                                               receive
+                                                   {ok, Worker}->
+                                                       Callback(Worker);
+                                                   _UE ->
+                                                       {error, _UE}
+                                               end
+                                       end),
+                           gproc:send({n,l,Topic}, {pick, Topic, Pid})
+                   end,
     case RegName of
+        {'EXIT',Reason} ->
+            Callback({error,Reason});
         undefined ->
-            ekaf:prepare(Topic);
+            ekaf:prepare(Topic, TempCallback);
         _ ->
-            gproc:send({n,l,Topic},
-            %gen_server:cast(
-            % RegName,
-              {pick, Topic, Callback})
+            TempCallback(undefined)
     end.
 
 pick_sync(Topic, Callback, Strategy)->
@@ -58,26 +68,30 @@ pick_sync(_Topic, _Callback, ketama, _Attempt)->
     %TODO
     error;
 %% if strategy is sticky_round_robin or strict_round_robin or random
-pick_sync(Topic, Callback, _Strategy, Attempt)->
-    R = case pg2:get_closest_pid(Topic) of
-            PoolPid when is_pid(PoolPid) ->
-                PoolPid;
-            {error, {no_process,_}}->
-                {error,bootstrapping};
-            {error,{no_such_group,_}}->
-                ekaf:prepare(Topic),
-                receive
-                    X ->
-                        X,
-                        {error, {retry, Attempt+1}}
-                after 5000 ->
-                        {error,timeout}
-                end;
-            _E ->
-                error_logger:info_msg("~p pick_sync ERROR: ~p",[?MODULE,_E]),
-                _E
-        end,
+pick_sync(Topic, Callback, _Strategy, _Attempt)->
+    case pg2:get_closest_pid(Topic) of
+        PoolPid when is_pid(PoolPid) ->
+            handle_callback(Callback,PoolPid);
+        {error, {no_process,_}}->
+            handle_callback(Callback,{error,bootstrapping});
+        {error,{no_such_group,_}}->
+            ekaf:prepare(Topic, Callback);
+        _E ->
+            error_logger:info_msg("~p pick_sync ERROR: ~p",[?MODULE,_E]),
+            handle_callback(Callback,_E)
+    end.
+
+handle_callback(Callback, Pid)->
     case Callback of
-        undefined -> R;
-        _ -> spawn(fun()-> Callback(R) end)
+        undefined -> Pid;
+        _ -> Callback(Pid)
+    end.
+
+join_group_if_not_present(PG, Pid)->
+    Pids = pg2:get_members(PG),
+    case lists:member(Pid, Pids) of
+        true ->
+            ok;
+        _ ->
+            pg2:join(PG, Pid)
     end.

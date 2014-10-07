@@ -43,10 +43,10 @@ encode_request(ApiKey, CorrelationId, ClientId, RequestMessage) ->
                %  0,0,0,0,17,250,139,27,76,0,0,255,255,255,255,0,0,0,3,102,111,
                %  111>>
 encode_sync(CorrelationId, ClientId, Packet)->
-    ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet).
+    ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet#produce_request{ required_acks = 1}).
 
 encode_async(CorrelationId, ClientId, Packet)->
-    ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet).
+    ekaf_protocol_produce:encode_produce_request(CorrelationId, ClientId, Packet#produce_request{ required_acks = 0}).
 
 encode_produce_request(CorrelationId, ClientId, Packet)->
     ekaf_protocol_produce:encode(CorrelationId, ClientId, Packet).

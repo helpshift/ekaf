@@ -28,7 +28,7 @@ start_link(Args)->
 %% @private
 -spec init(list()) -> {ok, _}.
 init(_Args) ->
-    {ok, { {one_for_one, 10, 10}, [] }}.
+    {ok, { {one_for_one, 10000, 1}, [] }}.
 
 %%====================================================================
 %% Internal functions
@@ -39,7 +39,6 @@ start_child(Module,ChildSpec) when is_tuple(ChildSpec) ->
 start_child(Module,InitArgs) ->
     case Module:get_child_spec(InitArgs) of
         [] ->
-            ?INFO_MSG("not starting ~p since []",[InitArgs]),
             ok;
         [ChildSpec] ->
             start_child(Module,ChildSpec);

@@ -4,42 +4,63 @@
 
 -export([
          %% API
-         prepare/1,
+         prepare/1, prepare/2,
          common_async/3,
          common_sync/3, common_sync/4,
-         start_child/4,
+         start_child/5, stop_child/1,
 
          %% read configs per topic
-         get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1, get_concurrency_opts/1, get_buffer_ttl/1, get_default/3, get_callbacks/1,
-         get_pool_name/1, get_topic_as_atom/1,
-
-         %% networking
-         open_socket/1, close_socket/1,
+         get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1,
+         get_concurrency_opts/1, get_buffer_ttl/1, get_default/3,
+         get_pool_name/1,
 
          %% fsm handling
-         handle_reply_when_not_ready/3, handle_continue_when_not_ready/3,
-         handle_connected/2,
-         handle_metadata_during_bootstrapping/2, handle_metadata_during_ready/3,
+         handle_reply_when_not_ready/4,
+         handle_metadata_during_ready/2,
          handle_async_as_batch/3, handle_sync_as_batch/4,
-         handle_inactivity_timeout/1,
+         handle_inactivity_timeout/1, fsm_next_state/2, fsm_next_state/3,
 
          %% manipulating state
          cursor/3,flush/1,
 
          %% helpers
          data_to_message_sets/1, data_to_message_set/1,response_to_proplist/1,
-         add_message_to_buffer/2, pop_messages_from_buffer/2
+         add_message_to_buffer/2, pop_messages_from_buffer/2, add_messages_to_sent/2,
+         flush_messages_callback/1, flushed_messages_replied_callback/2
 ]).
 
 prepare(Topic)->
+    ekaf_sup:start_child(ekaf_sup,
+                         {Topic, {ekaf_server, start_link, [[Topic]]},
+                          transient, infinity, worker, []}
+                        ),
+    Pid = (catch gproc:where({n,l,Topic})),
+    case Pid of
+        SomePid when is_pid(SomePid)->
+            gen_fsm:sync_send_event(Pid, prepare);
+        _E ->
+            {error, _E}
+    end.
+
+prepare(Topic, Callback)->
     %% Each topic must first get metadata of the partitions
     %% For each topic+partition combination, then starts `ekaf_partition_workers` workers
     %% This process will bootup the partition workers, then die
     %% Hence is not supervised
-    ekaf_fsm:start_link([
-                         self(),
-                         ekaf_lib:get_bootstrap_broker(),Topic]).
+    Prepared = prepare(Topic),
+    case Prepared of
+        {ok, Pid} when Callback =:= undefined ->
+            Pid;
+        {ok, Pid} ->
+            Callback(Pid);
+        _ ->
+            ok
+    end.
 
+%% Pick a worker, and pass it into the callback
+%% usually, callback(worker) blocks on the worker
+%% but ekaf:pick creates a new process that blocks instead
+%% this way the worker doesnt wait for the action to finish
 common_async(Event, Topic, Data)->
     ekaf:pick(Topic, fun(Worker)->
                              case Worker of
@@ -73,21 +94,12 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
         true ->
             %% only timeout sends messages every BufferTTL ms
             ekaf_lib:add_message_to_buffer(Messages,State);
-            % case ToBuffer of
-            %     true ->
-            %         ekaf_lib:add_message_to_buffer(Messages,State);
-            %     _ ->
-            %         ekaf_lib:pop_messages_from_buffer(Messages,State)
-            % end;
         _ ->
             {ekaf_lib:data_to_message_sets(Messages), State#ekaf_fsm{ cor_id =  State#ekaf_fsm.cor_id+1}}
     end.
 
-handle_continue_when_not_ready(StateName,_Event, State)->
-    fsm_next_state(StateName, State).
-
-handle_reply_when_not_ready(_Event, _From, State)->
-    {reply, {error, {not_ready_for,_Event}}, State}.
+handle_reply_when_not_ready(During,  Event, _From, State)->
+    {reply, {error, {During,not_ready_for, Event}}, During, State}.
 
 handle_inactivity_timeout(State)->
     ?MODULE:flush(State).
@@ -96,15 +108,16 @@ flush(#ekaf_fsm{ buffer = []} = State)->
     State;
 flush(PrevState)->
     {Messages,State} = ekaf_lib:pop_messages_from_buffer([],PrevState),
-    spawn_inactivity_timeout(Messages,State),
-    flush_messages_callback(State),
-    State#ekaf_fsm{ last_known_size = 0 }.
+    NextState = spawn_inactivity_timeout(Messages,State),
+    flush_messages_callback(NextState),
+    NextState#ekaf_fsm{ last_known_size = 0 }.
 
-spawn_inactivity_timeout([],_)->
-    ok;
-spawn_inactivity_timeout(_,#ekaf_fsm{socket = undefined} )->
-    ok;
-spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId, socket = Socket, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket})->
+spawn_inactivity_timeout([],State)->
+    State;
+spawn_inactivity_timeout(_,#ekaf_fsm{socket = undefined} = State)->
+    State;
+spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientId, socket = Socket, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket} = State)->
+    Self = self(),
     spawn(
       fun()->
               MessageSets = ekaf_lib:data_to_message_sets(Messages),
@@ -112,7 +125,12 @@ spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId
                   [] ->
                       ok;
                   _ ->
+                      %% we buffer many messages
+                      %% then send them as one sync call
+                      %% TODO: retry for failed batches
                       ProducePacket = DefProducePacket#produce_request{
+                                        required_acks=1,
+                                        timeout=100,
                                         topics= [ DefTopicPacket#topic{
                                                     partitions =
                                                     [DefPartitionPacket#partition{
@@ -120,14 +138,18 @@ spawn_inactivity_timeout(Messages,#ekaf_fsm{cor_id = CorId, client_id = ClientId
                                                        message_sets = MessageSets}]
                                                    }]
                                        },
-                      Request = ekaf_protocol:encode_async(CorId, ClientId, ProducePacket),
-                      erlang:port_command(Socket, Request, [nosuspend])
+                      Request = ekaf_protocol:encode_sync(CorId, ClientId, ProducePacket),
+                      ekaf_socket:fork(Self, Socket, {send, produce_sync, Request}),
+                      ?DEBUG_MSG("send cor_id:~p ~p",[CorId,Messages])
               end
-      end).
-
+      end),
+    State.
 
 handle_async_as_batch(BatchEnabled, {_, Messages}, PrevState)->
-    {MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
+    %% usually when we buffer we add to front, then while converting to messagesets it gets reversed
+    %% but in sync batch, since it comes in order, reverse it for the expected behvaviour
+    FinalMessages = case Messages of Bin when is_binary(Bin)-> Bin; _ -> lists:reverse(Messages) end,
+    {MessageSets,State} = ekaf_lib:cursor(BatchEnabled, FinalMessages, PrevState),
     spawn_async_as_batch(BatchEnabled,MessageSets, State),
     fsm_next_state(ready, State, State#ekaf_fsm.buffer_ttl).
 
@@ -135,7 +157,8 @@ spawn_async_as_batch(_,[],_)->
     ok;
 spawn_async_as_batch(_,_, #ekaf_fsm{ socket = undefined })->
     ok;
-spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, to_buffer = ToBuffer, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket } = State)->
+spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ cor_id = CorId, socket = Socket, client_id = ClientId, to_buffer = ToBuffer, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket } = State)->
+    Self = self(),
     spawn(fun()->
                   case (BatchEnabled and ToBuffer) of
                       true ->
@@ -143,7 +166,13 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, clien
                           {reply, Response, ready, State, State#ekaf_fsm.buffer_ttl};
 
                       _ ->
+
+                          %% we buffer many messages
+                          %% then send them as one sync call
+                          %% TODO: retry for failed batches
                           ProducePacket = DefProducePacket#produce_request{
+                                            required_acks=1,
+                                            timeout=100,
                                             topics= [ DefTopicPacket#topic{
                                                         partitions =
                                                         [DefPartitionPacket#partition{
@@ -151,14 +180,17 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ socket = Socket, clien
                                                            message_sets = MessageSets}]
                                                        }]
                                            },
-                          Request = ekaf_protocol:encode_async(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
-                          erlang:port_command(Socket, Request, [nosuspend])
+                          Request = ekaf_protocol:encode_sync(CorId, ClientId, ProducePacket),
+                          ekaf_socket:fork(Self, Socket, {send, produce_sync, Request})
                   end
           end).
 
 %% if BatchEnabled, then there are bufferent and sent only when reaching max_buffer_size
 handle_sync_as_batch(BatchEnabled, {_, Messages}, From, #ekaf_fsm{ to_buffer = ToBuffer} = PrevState)->
-    {MessageSets,State} = ekaf_lib:cursor(BatchEnabled,Messages,PrevState),
+    %% usually when we buffer we add to front, then while converting to messagesets it gets reversed
+    %% but in sync batch, since it comes in order, reverse it for the expected behvaviour
+    FinalMessages = case Messages of Bin when is_binary(Bin)-> Bin; _ -> lists:reverse(Messages) end,
+    {MessageSets,State} = ekaf_lib:cursor(BatchEnabled, FinalMessages,PrevState),
     case (BatchEnabled and ToBuffer) of
         true ->
             Response = {buffered, State#ekaf_fsm.partition, length(State#ekaf_fsm.buffer) },
@@ -173,7 +205,8 @@ spawn_sync_as_batch([],_)->
     ok;
 spawn_sync_as_batch(_, #ekaf_fsm{ socket = undefined })->
     ok;
-spawn_sync_as_batch(MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientId, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket} = State)->
+spawn_sync_as_batch(MessageSets, #ekaf_fsm{ cor_id = CorId, socket = Socket, client_id = ClientId, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket})->
+    Self = self(),
     spawn(fun()->
                   %% each messge goes in a different messageset, even for batching
                   ProducePacket = DefProducePacket#produce_request{
@@ -186,73 +219,21 @@ spawn_sync_as_batch(MessageSets, #ekaf_fsm{ socket = Socket, client_id = ClientI
                                                    message_sets = MessageSets}]
                                                }]
                                    },
-                  Request = ekaf_protocol:encode_sync(State#ekaf_fsm.cor_id,ClientId, ProducePacket),
-                  erlang:port_command(Socket, Request, [nosuspend])
+                  Request = ekaf_protocol:encode_sync(CorId, ClientId, ProducePacket),
+                  ekaf_socket:fork(Self, Socket, {send, produce_sync, Request})
           end).
 
 
-handle_connected({metadata, Topic}, #ekaf_fsm{ socket = Socket} = State)->
-    CorrelationId = State#ekaf_fsm.cor_id,
-    Request = ekaf_protocol:encode_metadata_request(CorrelationId, "", [Topic]),
-    case gen_tcp:send(State#ekaf_fsm.socket, Request) of
-        ok ->
-            Metadata = recv_incoming_metadata(Socket,<<>>),
-            NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
-            gen_fsm:send_event(self(), {metadata,Metadata}),
-            fsm_next_state(bootstrapping, NewState);
-        Reason ->
-           ?INFO_MSG("~n stop since ~p",[Reason]),
-            {stop, Reason, State}
-    end.
+handle_metadata_during_ready( _From, #ekaf_fsm{ metadata = Metadata } = State)->
+    %% a workers metadata is always up-to-date
+    %% because if it changes, the socket closes and the worker stops
+    %% a new metadata request and responses starts new workers
+    {reply, Metadata, ready, State}.
 
-handle_metadata_during_bootstrapping({metadata,Metadata}, #ekaf_fsm{ topic = Topic } = State)->
-    pg2:create(Topic),
-    BrokersDict = lists:foldl(fun(Broker,Dict)->
-                                       dict:append(Broker#broker.node_id,
-                                                  Broker,
-                                                  Dict)
-                              end, dict:new(), Metadata#metadata_response.brokers),
-    Started = lists:foldl(
-                fun(#topic{ name = CurrTopicName } = CurrTopic,TopicsAcc) when CurrTopicName =:= Topic ->
-                        ekaf_sup:start_child(ekaf_sup,
-                                             {Topic, {ekaf_server, start_link, [[Topic]]},
-                                              permanent, infinity, worker, []}
-                                            ),
-                        ?DEBUG_MSG("~n ~p will have ~p partitions",[Topic,length(CurrTopic#topic.partitions)]),
-                        TempStarted =
-                            [ begin
-                                  Leader = Partition#partition.leader,
-                                  PartitionId = Partition#partition.id,
-                                  {ok,[Broker]} = dict:find(Leader, BrokersDict),
-                                  Child = ekaf_lib:start_child(Broker, CurrTopic, Leader, PartitionId ),
-                                  Child
-                              end
-                              || Partition <- CurrTopic#topic.partitions ],
-                        [TempStarted|TopicsAcc];
-                    (TopicsAcc,_OtherTopic)->
-                        TopicsAcc
-                end, [], Metadata#metadata_response.topics),
-    State#ekaf_fsm.reply_to ! {ready,Started},
-    {stop, normal, State#ekaf_fsm{metadata = Metadata}}.
-
-handle_metadata_during_ready({metadata, Topic}, _From, #ekaf_fsm{ socket = Socket } = State)->
-    CorrelationId = State#ekaf_fsm.cor_id+1,
-    ClientId = State#ekaf_fsm.client_id,
-    Request = ekaf_protocol:encode_metadata_request(CorrelationId,ClientId, [Topic]),
-    case gen_tcp:send(State#ekaf_fsm.socket, Request) of
-        ok ->
-            Response = recv_incoming_metadata(Socket, <<>>),
-            NewState = State#ekaf_fsm{cor_id = CorrelationId + 1},
-            {reply, Response, ready, NewState};
-        Reason ->
-            ?ERROR_MSG("~p",[Reason]),
-            {stop, Reason, State}
-    end.
-
-add_message_to_buffer(Message,State) when is_binary(Message)->
-    {[], State#ekaf_fsm{ buffer = [Message | State#ekaf_fsm.buffer], cor_id = State#ekaf_fsm.cor_id+1}};
-add_message_to_buffer(Messages,State) ->
-    {[], State#ekaf_fsm{ buffer = Messages ++ State#ekaf_fsm.buffer, cor_id = State#ekaf_fsm.cor_id+1}}.
+add_message_to_buffer(Message, #ekaf_fsm{ buffer = Buffer } = State) when is_binary(Message)->
+    {[], State#ekaf_fsm{ buffer = [Message | Buffer], cor_id = State#ekaf_fsm.cor_id+1}};
+add_message_to_buffer(Messages,#ekaf_fsm{ buffer = Buffer } = State) ->
+    {[], State#ekaf_fsm{ buffer = Messages ++ Buffer, cor_id = State#ekaf_fsm.cor_id+1}}.
 
 pop_messages_from_buffer([],#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = State) ->
     {Buffer, State#ekaf_fsm{ buffer = [], cor_id = CorId+1}};
@@ -261,18 +242,30 @@ pop_messages_from_buffer(Messages,#ekaf_fsm{ buffer = Buffer, cor_id = CorId} = 
 pop_messages_from_buffer(Message,#ekaf_fsm{ buffer= Buffer, cor_id = CorId }=State) ->
     {[Message|Buffer], State#ekaf_fsm{ buffer = [], cor_id = CorId+1}}.
 
+add_messages_to_sent(Messages, #ekaf_fsm{ kv = KV, cor_id = CorId } = State)->
+    State#ekaf_fsm{ kv = dict:append({cor_id,CorId}, {?EKAF_PACKET_DECODE_PRODUCE_ASYNC_BATCH, Messages}, KV)}.
+
 flush_messages_callback(State)->
     Self = self(),
     spawn(fun()->
-                  FlushCallback = State#ekaf_fsm.flush_callback,
-                  case catch FlushCallback of
+                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSH),
+                  case FlushCallback of
                       {FlushCallbackModule,FlushCallbackFunction} ->
-                          Len = State#ekaf_fsm.last_known_size,
-                          Topic = State#ekaf_fsm.topic,
-                          PartitionId = State#ekaf_fsm.partition,
-                          CorId = State#ekaf_fsm.cor_id,
-			  Broker = State#ekaf_fsm.broker,
-                          FlushCallbackModule:FlushCallbackFunction(Topic, Broker, PartitionId, Len, Self, CorId);
+                          FlushCallbackModule:FlushCallbackFunction(?EKAF_CALLBACK_FLUSH, Self, ready, State, undefined);
+                      undefined ->
+                          ok
+                  end
+          end).
+
+flushed_messages_replied_callback(State, Packet)->
+    Self = self(),
+    spawn(fun()->
+                  Reply = {{replied, State#ekaf_fsm.partition, Self},
+                           ekaf_protocol:decode_produce_response(Packet)},
+                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSHED_REPLIED),
+                  case FlushCallback of
+                      {FlushCallbackModule,FlushCallbackFunction} ->
+                          FlushCallbackModule:FlushCallbackFunction(?EKAF_CALLBACK_FLUSHED_REPLIED, Self, ready, State, {ok,Reply});
                       undefined ->
                           ok
                   end
@@ -300,7 +293,7 @@ response_to_proplist(_) ->
 data_to_message_sets(Data)->
     data_to_message_sets(Data,[]).
 data_to_message_sets([],Messages)->
-    lists:reverse(Messages);
+    Messages;
 data_to_message_sets([Message|Rest], Messages) when is_record(Message,message)->
     data_to_message_sets(Rest, [Message|Messages]);
 data_to_message_sets([{Key,Value}|Rest], Messages ) ->
@@ -323,20 +316,29 @@ data_to_message_set([Value|Rest], #message_set{ messages = Messages }) ->
 data_to_message_set(Value, #message_set{ size = Size, messages = Messages }) ->
     #message_set{ size = Size + 1, messages = [#message{value = Value}| Messages] }.
 
-start_child(Broker, Topic, Leader, PartitionId)->
+start_child(Metadata, Broker, Topic, Leader, PartitionId)->
     TopicName = Topic#topic.name,
     SizeArgs = ?MODULE:get_concurrency_opts(TopicName),
     NextPoolName = ?MODULE:get_pool_name({TopicName, Broker, PartitionId, Leader }),
 
-    WorkerArgs = [NextPoolName, {Broker#broker.host,Broker#broker.port}, TopicName, Leader, PartitionId],
-    ?DEBUG_MSG("~n  ~p partition ~p will have ~p workers",[TopicName,PartitionId, SizeArgs]),
+    WorkerArgs = [NextPoolName, Metadata, {Broker#broker.host,Broker#broker.port}, TopicName, Leader, PartitionId],
     [
      begin
-         ekaf_sup:start_child(ekaf_sup,
-                              {{WorkerArgs,X}, {ekaf_fsm, start_link, [WorkerArgs]},
-                               permanent, infinity, worker, [ekaf_fsm]}
-                             )
+         WorkerId = erlang:phash2({WorkerArgs,X}),
+         Child = ekaf_sup:start_child(ekaf_sup,
+                              {WorkerId, {ekaf_fsm, start_link, [[WorkerId|WorkerArgs]]},
+                              transient, infinity, worker, [ekaf_fsm]}
+                             ),
+         ?DEBUG_MSG("start child ~p for broker~w#~w => ~p",[WorkerId, Leader, PartitionId, Child])
      end || X<- lists:seq(1, proplists:get_value(size, SizeArgs))].
+
+stop_child(WorkerId)->
+    spawn(fun()->
+                  receive
+                  after 10 ->
+                          supervisor:delete_child(ekaf_sup, WorkerId)
+                  end
+          end).
 
 get_bootstrap_broker()->
     case application:get_env(ekaf, ekaf_bootstrap_broker) of
@@ -409,50 +411,8 @@ get_pool_name({PoolName, Topic, Broker, PartitionId, Leader })->
 get_pool_name({Topic, Broker, PartitionId, Leader })->
     NextPoolName = {Topic, Broker, PartitionId, Leader },
     ekaf_utils:btoatom(ekaf_utils:itob(erlang:phash2(NextPoolName))).
-get_topic_as_atom(Topic)->
-    S = ekaf_utils:btoa(<<"ekaf_server_",Topic/binary>>),
-    case erl_scan:string(S) of
-        {ok, [{atom,_,A}|_],_} ->
-            A;
-        _ ->
-            list_to_atom(S)
-    end.
-
-get_callbacks(flush)->
-    case application:get_env(ekaf,ekaf_callback_flush) of
-        {ok,MF}-> MF;
-        _ -> undefined
-    end;
-get_callbacks(_) ->
-    undefined.
-
-open_socket({Host,Port}) when is_binary(Host)->
-    open_socket({ ekaf_utils:btoa(Host),Port});
-
-open_socket({Host,Port})->
-    gen_tcp:connect(Host, Port, [binary,{packet, 4}
-                                ,{sndbuf, 10000000}]).
-
-close_socket(undefined)->
-    ok;
-close_socket(Socket) ->
-    gen_tcp:close(Socket).
 
 fsm_next_state(StateName,State)->
-    ekaf_fsm:fsm_next_state(StateName, State).
-fsm_next_state(StateName,State, Timeout)->
-    ekaf_fsm:fsm_next_state(StateName, State, Timeout).
-
-
-recv_incoming_metadata(Socket,Acc)->
-    receive
-        {tcp, _, Packet} ->
-            case Packet of
-                <<_CorrelationId:32, _/binary>>  ->
-                    ekaf_protocol:decode_metadata_response(Packet);
-                Packet ->
-                    {error,Packet}
-            end;
-        _E ->
-            recv_incoming_metadata(Socket, Acc )
-    end.
+    {next_state, StateName, State}.
+fsm_next_state(StateName, State, Timeout)->
+    {next_state, StateName, State, Timeout}.
