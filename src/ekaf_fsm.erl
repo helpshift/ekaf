@@ -5,6 +5,7 @@
 %% Include files
 %%--------------------------------------------------------------------
 -include("ekaf_definitions.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -define(HIBERNATE_TIMEOUT, undefined).
 -define(KEEPALIVE_INTERVAL, 60*1000).
@@ -281,16 +282,14 @@ handle_info(Info, StateName, State) ->
 %% Returns: any
 %%--------------------------------------------------------------------
 terminate(Reason, StateName,  #ekaf_fsm{ id = WorkerId, socket = Socket, topic = Topic, buffer = Buffer } = State)->
-    Self = self(),
     ekaf_socket:close(Socket),
-
     (catch gproc:send({n,l,Topic}, {worker, down, self(), WorkerId, StateName, State, Reason})),
 
     case Buffer of
         [] ->
             ok;
         _ ->
-            io:format("~n ~p stopping since ~p when buffer had ~p items",[Self, Reason, Buffer]),
+            ?INFO_MSG("stopping since ~p when buffer had ~p items",[Reason, length(Buffer)]),
             gproc:send({n,l,Topic}, {add, queue, Buffer})
     end,
     pg2:leave(Topic,self()),

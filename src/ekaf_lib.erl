@@ -11,6 +11,7 @@
 
          %% read configs per topic
          get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1,
+         get_max_downtime_buffer_size/1,
          get_concurrency_opts/1, get_buffer_ttl/1, get_default/3,
          get_pool_name/1,
 
@@ -372,6 +373,9 @@ get_concurrency_opts(Topic)->
 
 get_max_buffer_size(Topic)->
     get_default(Topic, ekaf_max_buffer_size,?EKAF_DEFAULT_MAX_BUFFER_SIZE).
+
+get_max_downtime_buffer_size(Topic)->
+    get_default(Topic, ekaf_max_downtime_buffer_size, ?EKAF_DEFAULT_MAX_DOWNTIME_BUFFER_SIZE).
 
 get_buffer_ttl(Topic)->
     get_default(Topic, ekaf_buffer_ttl, ?EKAF_DEFAULT_BUFFER_TTL).

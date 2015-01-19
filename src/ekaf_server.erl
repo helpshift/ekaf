@@ -76,9 +76,13 @@ init(_Args) ->
 generic_init(Topic)->
     Strategy = ekaf_lib:get_default(Topic,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
     StickyPartitionBatchSize = ekaf_lib:get_default(Topic,ekaf_sticky_partition_buffer_size, 1000),
+    MaxDowntimeBufferSize = ekaf_lib:get_max_downtime_buffer_size(Topic),
     BootstrapBroker = ekaf_lib:get_bootstrap_broker(),
     gen_fsm:start_timer(1000,<<"refresh">>),
-    #ekaf_server{strategy = Strategy, kv = dict:new(), max_buffer_size = StickyPartitionBatchSize, broker = BootstrapBroker, time = os:timestamp() }.
+    #ekaf_server{strategy = Strategy, kv = dict:new(),
+                 max_buffer_size = StickyPartitionBatchSize,
+                 max_downtime_buffer_size = MaxDowntimeBufferSize,
+                 broker = BootstrapBroker, time = os:timestamp() }.
 
 %%--------------------------------------------------------------------
 %% Func: StateName/2
@@ -95,7 +99,7 @@ downtime(connect, #ekaf_server{ broker = Broker, time = T1 } = State)->
             gen_fsm:send_event(self(), {metadata, req, Socket}),
             fsm_next_state(downtime, State#ekaf_server{ socket = Socket });
         {error, Reason} ->
-            ekaf_callbacks:call(?EKAF_CALLBACK_WORKER_DOWN, self(), downtime, State, Reason),
+            ekaf_callbacks:call(?EKAF_CALLBACK_WORKER_STILL_DOWN, self(), downtime, State, Reason),
             ekaf_server_lib:reconnect_attempt(),
             fsm_next_state(downtime, State)
     end;
@@ -285,14 +289,12 @@ downtime({produce_sync, Messages}, From, State)->
     gen_fsm:reply(From, {error, downtime}),
     ekaf_server_lib:save_messages(downtime, State, Messages);
 downtime(_Request, _From, State) ->
-    ?debugFmt("downtime/3 cant handle ~p from ~p",[_Request, _From]),
     Reply = {error, downtime},
     {reply, Reply, downtime, State}.
 
 connected({produce_sync, Messages}, _From, State)->
     ekaf_server_lib:save_messages(connected, State, Messages);
-connected(Info,_,State)->
-    ?debugFmt("connected/3 cant handle ~p",[Info]),
+connected(_,_,State)->
     fsm_next_state(connected, State).
 %%--------------------------------------------------------------------
 %% Func: handle_event/3

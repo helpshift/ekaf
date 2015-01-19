@@ -2,6 +2,7 @@
 %% Constants
 %%======================================================================
 -define(EKAF_DEFAULT_MAX_BUFFER_SIZE             , 100).
+-define(EKAF_DEFAULT_MAX_DOWNTIME_BUFFER_SIZE    , undefined).
 -define(EKAF_DEFAULT_BOOTSTRAP_BROKER            , {"localhost",9091}).
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS       , 100).
 -define(EKAF_DEFAULT_PER_PARTITION_WORKERS_MAX   , 100).
@@ -34,14 +35,16 @@
 %%======================================================================
 %% Optional {Mod,Func} callbacks that can be set as an app env to ekaf
 %%======================================================================
--define(EKAF_CALLBACK_FLUSH                     , <<"ekaf_callback_flush">>).
--define(EKAF_CALLBACK_FLUSHED_REPLIED           , <<"ekaf_callback_flushed_replied">>).
--define(EKAF_CALLBACK_WORKER_DOWN               , <<"ekaf_callback_worker_down">>).
--define(EKAF_CALLBACK_WORKER_UP                 , <<"ekaf_callback_worker_up">>).
--define(EKAF_CALLBACK_DOWNTIME_SAVED            , <<"ekaf_callback_downtime_saved">>).
--define(EKAF_CALLBACK_DOWNTIME_REPLAYED         , <<"ekaf_callback_downtime_replayed">>).
--define(EKAF_CALLBACK_TIME_TO_CONNECT           , <<"ekaf_callback_time_to_connect">>).
--define(EKAF_CALLBACK_TIME_DOWN                 , <<"ekaf_callback_time_down">>).
+-define(EKAF_CALLBACK_FLUSH                      , <<"ekaf_callback_flush">>).
+-define(EKAF_CALLBACK_FLUSHED_REPLIED            , <<"ekaf_callback_flushed_replied">>).
+-define(EKAF_CALLBACK_WORKER_DOWN                , <<"ekaf_callback_worker_down">>).
+-define(EKAF_CALLBACK_WORKER_STILL_DOWN          , <<"ekaf_callback_worker_still_down">>).
+-define(EKAF_CALLBACK_WORKER_UP                  , <<"ekaf_callback_worker_up">>).
+-define(EKAF_CALLBACK_DOWNTIME_SAVED             , <<"ekaf_callback_downtime_saved">>).
+-define(EKAF_CALLBACK_DOWNTIME_REPLAYED          , <<"ekaf_callback_downtime_replayed">>).
+-define(EKAF_CALLBACK_TIME_TO_CONNECT            , <<"ekaf_callback_time_to_connect">>).
+-define(EKAF_CALLBACK_TIME_DOWN                  , <<"ekaf_callback_time_down">>).
+-define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, <<"ekaf_callback_max_downtime_buffer_reached">>).
 
 %%======================================================================
 %% Macros
@@ -94,7 +97,7 @@
 %% Records
 %%======================================================================
 %% Used by workers
--record(ekaf_server, {broker, strategy, worker, workers=[], topic, messages=[]::list(), socket, cor_id=0::integer(), max_buffer_size::integer(), kv, ctr=0::integer(), metadata, ongoing_metadata=false::boolean(), time}).
+-record(ekaf_server, {broker, strategy, worker, workers=[], topic, messages=[]::list(), socket, cor_id=0::integer(), max_buffer_size::integer(), max_downtime_buffer_size::integer(), kv, ctr=0::integer(), metadata, ongoing_metadata=false::boolean(), time}).
 -record(ekaf_fsm, { id::integer(), topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = true::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, time}).
 
 

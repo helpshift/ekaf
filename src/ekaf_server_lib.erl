@@ -85,7 +85,8 @@ handle_pick(Pick, _From, State) ->
 reconnect_attempt()->
     gen_fsm:start_timer(1000,<<"reconnect">>).
 
-save_messages(StateName, #ekaf_server{ messages = OfflineMessages, worker = Worker } = State, Messages)->
+save_messages(StateName, #ekaf_server{ messages = OfflineMessages, worker = Worker,
+                                       max_downtime_buffer_size = MaxDowntimeBufferSize } = State, Messages)->
     case StateName of
         ready when Worker =/= self() ->
             send_messages(StateName, State, Messages),
@@ -98,12 +99,7 @@ save_messages(StateName, #ekaf_server{ messages = OfflineMessages, worker = Work
                 _ ->
                     ok
             end,
-            NextMessages = case Messages of
-                               SomeList when is_list(SomeList)->
-                                   Messages ++ OfflineMessages;
-                               _ ->
-                                   [Messages|OfflineMessages]
-                           end,
+            NextMessages = save_messages_until(StateName, State, Messages, OfflineMessages, MaxDowntimeBufferSize),
             fsm_next_state(StateName, State#ekaf_server{ messages = NextMessages } )
     end.
 
@@ -121,6 +117,42 @@ send_messages(StateName, #ekaf_server{ topic = Topic } = State, Messages)->
             end,
             ekaf:produce_async_batched( Topic, Messages)
     end.
+
+save_messages_until(_, _, Messages, OfflineMessages, undefined)->
+    case Messages of
+        SomeList when is_list(SomeList)->
+            Messages ++ OfflineMessages;
+        _ ->
+            [Messages|OfflineMessages]
+    end;
+save_messages_until(StateName, State, TempMessages, OfflineMessages, MaxDowntimeBufferSize)->
+    %% if kafka is down, we save to a queue in-memory
+    %% by default this is un-bounded assuming kafka comes up quickly
+    %% optionally, bound this to some max oldest in the queue
+    %% see _demo.erl for the ekaf_max_downtime_buffer_size option
+    Messages = case TempMessages of
+                SomeMList when is_list(SomeMList)->
+                    TempMessages;
+                _ ->
+                    [TempMessages]
+            end,
+    Combined = Messages ++ OfflineMessages,
+    case length(Combined) of
+        BigLen when BigLen > MaxDowntimeBufferSize ->
+            case ekaf_callbacks:find(?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED) of
+                {Mod,Func} ->
+                    Self = self(),
+                    Mod:Func(?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, Self, StateName, State, {ok, OfflineMessages});
+                _ ->
+                    ok
+            end,
+            %%TODO: optimize
+            %% on the other hand, this is an edge case
+            lists:sublist(Messages,MaxDowntimeBufferSize);
+        _ ->
+            Combined
+    end.
+
 
 %% many pids that called prepare or pick or publish
 %% maybe waiting to get metadata, before continuing
