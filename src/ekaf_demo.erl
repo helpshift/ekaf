@@ -51,11 +51,13 @@ demo()->
     application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_REPLAYED, {ekaf_demo, demo_callback}),
     application:set_env(ekaf, ?EKAF_CALLBACK_TIME_TO_CONNECT, {ekaf_demo, demo_callback}),
     application:set_env(ekaf, ?EKAF_CALLBACK_TIME_DOWN, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, {ekaf_demo, demo_callback}),
 
     %% SET STRATEGY AND CONCURRENCY OPTIONS
     application:set_env(ekaf, ekaf_partition_strategy, strict_round_robin),
     application:set_env(ekaf, ekaf_per_partition_workers, 2),
     application:set_env(ekaf, ekaf_per_partition_workers_max, 10),
+    application:set_env(ekaf, ekaf_max_downtime_buffer_size, 4),
 
     % POINT TO KAFKA
 
