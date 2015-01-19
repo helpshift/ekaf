@@ -158,11 +158,11 @@ connected({timeout, Timer, <<"reconnect">>}, State)->
     gen_fsm:cancel_timer(Timer),
     fsm_next_state(connected, State);
 connected({tcp_closed,_}, State)->
-    ?INFO_MSG("connected/2 cant handle ~p",[_Event]),
     ?INFO_MSG("tcp_closed, reconnect",[]),
     gen_fsm:send_event(self(), connect),
     fsm_next_state(downtime, State);
 connected(_Event, State)->
+    ?INFO_MSG("connected/2 cant handle ~p",[_Event]),
     fsm_next_state(connected, State).
 
 ready(disconnected, State)->
