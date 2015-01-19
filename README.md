@@ -6,11 +6,11 @@ An advanced but simple to use, Kafka producer written in Erlang
 
 ### Highlights ###
 * An erlang implementation of a `Producer` as per 0.8 Kafka wire protocol
-* Produce data to a Topic syncronously and asynchronously
-* Option to batche messages and customize the concurrency
+* Produce to a Topic syncronously and asynchronously
+* Option to batch messages and customize the concurrency
 * Several lazy handling of both metadata requests as well as connection pool creation
-* Will automatically buffer when broker goes down and resend
-* Will automatically start/stop workers based on kafka broker additions/changes
+* Will automatically buffer when broker goes down and resend, with max downtime size configurable
+* Will automatically start/stop workers based on kafka broker additions/changes/downtime
 * Callbacks to instrument into your monitoring system
 
 ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing to ekaf via simple HTTP endpoints that handles more than 100 million events/day as of mid 2014 at Helpshift.
@@ -125,6 +125,12 @@ and on terminal 2
     > ekaf.ekaf_callback_flush.broker1.0 20
     > ekaf.ekaf_callback_flushed_replied.broker1.0.diff 0
 
+To create your own topics and test them see the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
+
+    $ bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic ekaf
+
+Then change the line in ekaf_demo.erl to point to your kafka server instead of kafkamocker.
+
 ### Tunable Concurrency ###
 Each worker represents a connection to a broker + topic + partition combination.
 You can decide how many workers to start for each partition
@@ -226,6 +232,21 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
 
     %% pick/1 and pick/2 also exist for synchronously choosing a worker
 
+### Fault tolerant
+
+Features you gain by using ekaf for pushing to kafka:
+
+* Handles changes in kafka metadata auto-magically. 
+  Metadata is queried on connection losses and at regular intervals
+* If one partition/broker goes down, messages will go to other available partitions/brokers
+  (as configured on kafka)
+* If all brokers/partitions are unavailable, will start buffering messages in-memory,
+  and replay them when the broker is back. See `ekaf_max_downtime_buffer_size` for configuring this options.
+  By default this is not set, since kafka restarts are usually quick, and possibility of all brokers down
+  is low.
+* All these network conditions are simulated in the tests. You're covered!
+
+
 ### Instrumentable
 
 Current callbacks include when the buffer is flushed.
@@ -257,9 +278,11 @@ Here is an example of instrumenting ekaf with the included `ekaf_stats` module a
     {ok, _} = statman_poller_sup:add_gauge( fun statman_vm_metrics:get_gauges/0),
     ok.
 
-...will generate gauges on statman like this
+...will generate gauges on statman like this.
 
 ![screenshot-instrumentable](/benchmarks/screenshot-ekaf-instrumentable-eg-statman.png)
+
+We have changed this to work with statsite/statsd/grafana as well.
 
 ### State Machines ###
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
@@ -352,46 +375,42 @@ Running the test on a 2GB RAM vagrant VM, where the broker was local
 ekaf comes embedded with `kafkamocker` - an erlang/otp app that any app can embed to simulate a kafka broker.
 This means that an actual consumer has verified the receipt of the published messages in our eunit tests.
 
-To create your own topics and test them see the Kafka Quickstart at `http://kafka.apache.org/08/quickstart.html`
-
-    $ bin/kafka-create-topic.sh --zookeeper localhost:2181 --replica 1 --partition 1 --topic ekaf
-
 ekaf works well with rebar.
 
     $ rebar get-deps clean compile eunit
-
-        ==> ekaf (eunit)
-    Compiled src/ekaf_callbacks.erl
-    Compiled src/ekaf.erl
-    Compiled test/ekaf_tests.erl
-    Compiled src/ekaf_demo.erl
-    Compiled src/ekaf_fsm.erl
-    Compiled src/ekaf_lib.erl
-    Compiled src/ekaf_picker.erl
-    Compiled src/ekaf_protocol.erl
+    
+    ==> ekaf (eunit)
+    Compiled src/ekaf_sup.erl
+    Compiled src/ekaf_socket.erl
+    Compiled src/ekaf_utils.erl
+    Compiled src/ekaf_server_lib.erl
+    Compiled src/ekaf_server.erl
     Compiled src/ekaf_protocol_metadata.erl
     Compiled src/ekaf_protocol_produce.erl
-    Compiled src/ekaf_server_lib.erl
-    Compiled src/ekaf_socket.erl
-    Compiled src/ekaf_sup.erl
-    Compiled src/user_default.erl
-    Compiled src/ekaf_server.erl
-    Compiled src/ekaf_utils.erl
-
-    test/ekaf_tests.erl:83:<0.177.0>: t_pick_from_new_pool ( ) = ok
-    test/ekaf_tests.erl:85:<0.195.0>: t_request_metadata ( ) = ok
-    test/ekaf_tests.erl:87:<0.199.0>: t_request_info ( ) = ok
-    test/ekaf_tests.erl:90:<0.203.0>: t_produce_sync_to_topic ( ) = ok
-    test/ekaf_tests.erl:92:<0.209.0>: t_produce_sync_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:94:<0.215.0>: t_produce_sync_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:96:<0.223.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:99:<0.231.0>: t_produce_async_to_topic ( ) = ok
-    test/ekaf_tests.erl:101:<0.239.0>: t_produce_async_multi_to_topic ( ) = ok
-    test/ekaf_tests.erl:103:<0.247.0>: t_produce_async_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:105:<0.256.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
-    test/ekaf_tests.erl:108:<0.265.0>: t_restart_kafka_broker ( ) = ok
-    test/ekaf_tests.erl:110:<0.278.0>: t_change_kafka_config ( ) = ok
-      All 26 tests passed.
+    Compiled src/ekaf_picker.erl
+    Compiled src/ekaf_protocol.erl
+    Compiled src/ekaf_demo.erl
+    Compiled src/ekaf_fsm.erl
+    Compiled src/ekaf_callbacks.erl
+    Compiled src/ekaf_lib.erl
+    Compiled src/ekaf.erl
+    Compiled test/ekaf_tests.erl
+    test/ekaf_tests.erl:87:<0.496.0>: t_pick_from_new_pool ( ) = ok
+    test/ekaf_tests.erl:89:<0.513.0>: t_request_metadata ( ) = ok
+    test/ekaf_tests.erl:91:<0.517.0>: t_request_worker_state ( ) = ok
+    test/ekaf_tests.erl:94:<0.521.0>: t_produce_sync_to_topic ( ) = ok
+    test/ekaf_tests.erl:96:<0.527.0>: t_produce_sync_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:98:<0.533.0>: t_produce_sync_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:100:<0.540.0>: t_produce_sync_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:103:<0.547.0>: t_produce_async_to_topic ( ) = ok
+    test/ekaf_tests.erl:105:<0.554.0>: t_produce_async_multi_to_topic ( ) = ok
+    test/ekaf_tests.erl:107:<0.561.0>: t_produce_async_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:109:<0.569.0>: t_produce_async_multi_in_batch_to_topic ( ) = ok
+    test/ekaf_tests.erl:112:<0.577.0>: t_max_messages_to_save_during_kafka_downtime ( ) = ok
+    test/ekaf_tests.erl:114:<0.595.0>: t_restart_kafka_broker ( ) = ok
+    test/ekaf_tests.erl:116:<0.608.0>: t_change_kafka_config ( ) = ok
+    All 28 tests passed.
+    
     Cover analysis: /data/repos/ekaf/.eunit/index.html
 
     Code Coverage:
