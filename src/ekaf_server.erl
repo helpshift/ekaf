@@ -38,8 +38,8 @@ start_link(Args) ->
     gen_fsm:start_link(?MODULE, Args, []).
 start_link(Name,Args) ->
     gen_fsm:start_link(Name, ?MODULE, Args,
-                          %[]
-                          [{debug, [trace,statistics]}]
+                          []
+                          %[{debug, [trace,statistics]}]
                          ).
 
 
