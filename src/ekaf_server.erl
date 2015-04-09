@@ -242,10 +242,9 @@ ready(info, _From, State)->
     {reply, Reply, State};
 ready({produce_sync, Messages}, _From, State)->
     ekaf_server_lib:save_messages(ready, State, Messages);
-ready(prepare, From, #ekaf_server{ kv = KV } = State)->
-    %got prepare during downtime
-    %let reply_to_prepares handle these when its ready
-    fsm_next_state(ready, State#ekaf_server{ kv = dict:append(prepare, From, KV)});
+ready(prepare, From, #ekaf_server{ worker = Worker } = State)->
+	gen_fsm:reply(From, {ok, Worker}),
+    fsm_next_state(ready, State);
 ready(metadata, From, #ekaf_server{ kv = KV} = State)->
     % got metadata during ready
     % this means that regular workers arent ready yet,

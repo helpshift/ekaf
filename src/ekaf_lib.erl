@@ -55,7 +55,7 @@ prepare(Topic, Callback)->
         {ok, Pid} ->
             Callback(Pid);
         _ ->
-            ok
+            {error, not_prepared}
     end.
 
 %% Pick a worker, and pass it into the callback
