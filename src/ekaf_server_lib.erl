@@ -83,7 +83,7 @@ handle_pick(Pick, _From, State) ->
     {Error, State}.
 
 reconnect_attempt()->
-    gen_fsm:start_timer(1000,<<"reconnect">>).
+    gen_fsm:start_timer(?EKAF_CONNECT_TIMEOUT, <<"reconnect">>).
 
 save_messages(StateName, #ekaf_server{ messages = OfflineMessages, worker = Worker } = State, Messages)->
     case StateName of

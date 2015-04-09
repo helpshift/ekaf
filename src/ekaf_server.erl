@@ -178,7 +178,7 @@ ready(connect, #ekaf_server{ broker = Broker } = State)->
             %% connection good, ask for metadata
             gen_fsm:send_event(self(), {metadata, req, Socket});
         _ ->
-            gen_fsm:start_timer(5000, <<"reconnect">>)
+            gen_fsm:start_timer(?EKAF_CONNECT_TIMEOUT, <<"reconnect">>)
     end,
     fsm_next_state(ready, State);
 ready({metadata, req, Socket}, State) ->

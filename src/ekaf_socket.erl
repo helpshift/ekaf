@@ -25,8 +25,9 @@ open({Host,Port}) when is_binary(Host)->
     open({ ekaf_utils:btoa(Host),Port});
 
 open({Host,Port})->
-    gen_tcp:connect(Host, Port, [binary,{packet, 4}
-                                ,{sndbuf, 10000000}]).
+    gen_tcp:connect(Host, Port, 
+					[binary,{packet, 4},{sndbuf, 10000000}],
+					?EKAF_CONNECT_TIMEOUT).
 
 close(undefined)->
     ok;
