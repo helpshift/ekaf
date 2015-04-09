@@ -188,9 +188,8 @@ ready({metadata, req, Socket}, State) ->
 ready({metadata, resp, _Metadata} = Event, State)->
     Next = ekaf_server_lib:handle_metadata_during_bootstrapping(Event, State),
     fsm_next_state(ready, Next#ekaf_server{ ongoing_metadata = false });
-ready({timeout, Timer, <<"reconnect">> = TimeoutKey}, State)->
+ready({timeout, Timer, <<"reconnect">> }, State)->
     gen_fsm:cancel_timer(Timer),
-    gen_fsm:start_timer(5000, TimeoutKey),
     gen_fsm:send_event(self(), connect),
     fsm_next_state(ready, State);
 ready({timeout, Timer, <<"refresh">> = TimeoutKey}, #ekaf_server{
