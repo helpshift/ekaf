@@ -400,6 +400,12 @@ handle_info({add, queue, Messages}, StateName, #ekaf_server{ messages = OfflineM
     %% when a partition worker dies, its queue gets added to the downtime queue
     %% the downtime queue is flushed when it the connection is good to go again
     fsm_next_state(StateName, State#ekaf_server{ messages = lists:append( OfflineMessages, Messages) });
+
+handle_info(purge_messages, StateName, #ekaf_server{ messages = OfflineMessages } = State)->
+	?INFO_MSG("Purge ~p messages for topic in process ~p~n",
+			 [length(OfflineMessages), self()]),
+    fsm_next_state(StateName, State#ekaf_server{ messages = [] });
+
 handle_info(_Info, StateName, State) ->
     ?INFO_MSG("dont know how to handle ~p during ~p",[_Info, StateName]),
     fsm_next_state(StateName, State).
