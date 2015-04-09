@@ -268,18 +268,10 @@ ready(Msg, _From, State)->
 downtime(info, _From, State)->
     Reply = State,
     {reply, Reply, State};
-downtime(prepare, From, #ekaf_server{ kv = KV, socket = Socket } = State)->
-    %got prepare during downtime
-    case Socket of
-        undefined ->
-            %% downtime since server down
-            gen_fsm:reply(From, {ok,self()}),
-            fsm_next_state(downtime, State);
-        _ ->
-            %% downtime since topic is still being queries
-            %% let reply_to_prepares handle these when its ready
-            fsm_next_state(downtime, State#ekaf_server{ kv = dict:append(prepare, From, KV)})
-    end;
+downtime(prepare, From, State)->
+	%% downtime since server down
+	gen_fsm:reply(From, {ok,self()}),
+	fsm_next_state(downtime, State);
 downtime({produce_sync, Messages}, From, State)->
     gen_fsm:reply(From, {error, downtime}),
     ekaf_server_lib:save_messages(downtime, State, Messages);
