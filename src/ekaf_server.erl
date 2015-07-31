@@ -182,7 +182,7 @@ ready(connect, #ekaf_server{ broker = Broker } = State)->
             %% connection good, ask for metadata
             gen_fsm:send_event(self(), {metadata, req, Socket});
         _ ->
-            gen_fsm:start_timer(5000, <<"reconnect">>)
+            gen_fsm:start_timer(?EKAF_CONNECT_TIMEOUT, <<"reconnect">>)
     end,
     fsm_next_state(ready, State);
 ready({metadata, req, Socket}, State) ->
@@ -192,9 +192,8 @@ ready({metadata, req, Socket}, State) ->
 ready({metadata, resp, _Metadata} = Event, State)->
     Next = ekaf_server_lib:handle_metadata_during_bootstrapping(Event, State),
     fsm_next_state(ready, Next#ekaf_server{ ongoing_metadata = false });
-ready({timeout, Timer, <<"reconnect">> = TimeoutKey}, State)->
+ready({timeout, Timer, <<"reconnect">> }, State)->
     gen_fsm:cancel_timer(Timer),
-    gen_fsm:start_timer(5000, TimeoutKey),
     gen_fsm:send_event(self(), connect),
     fsm_next_state(ready, State);
 ready({timeout, Timer, <<"refresh">> = TimeoutKey}, #ekaf_server{
@@ -243,13 +242,12 @@ ready(Msg, State) ->
 %%--------------------------------------------------------------------
 ready(info, _From, State)->
     Reply = State,
-    {reply, Reply, State};
+    {reply, Reply, ready, State};
 ready({produce_sync, Messages}, _From, State)->
     ekaf_server_lib:save_messages(ready, State, Messages);
-ready(prepare, From, #ekaf_server{ kv = KV } = State)->
-    %got prepare during downtime
-    %let reply_to_prepares handle these when its ready
-    fsm_next_state(ready, State#ekaf_server{ kv = dict:append(prepare, From, KV)});
+ready(prepare, From, #ekaf_server{ worker = Worker } = State)->
+	gen_fsm:reply(From, {ok, Worker}),
+    fsm_next_state(ready, State);
 ready(metadata, From, #ekaf_server{ kv = KV} = State)->
     % got metadata during ready
     % this means that regular workers arent ready yet,
@@ -272,19 +270,11 @@ ready(Msg, _From, State)->
 
 downtime(info, _From, State)->
     Reply = State,
-    {reply, Reply, State};
-downtime(prepare, From, #ekaf_server{ kv = KV, socket = Socket } = State)->
-    %got prepare during downtime
-    case Socket of
-        undefined ->
-            %% downtime since server down
-            gen_fsm:reply(From, {ok,self()}),
-            fsm_next_state(downtime, State);
-        _ ->
-            %% downtime since topic is still being queries
-            %% let reply_to_prepares handle these when its ready
-            fsm_next_state(downtime, State#ekaf_server{ kv = dict:append(prepare, From, KV)})
-    end;
+    {reply, Reply, downtime, State};
+downtime(prepare, From, State)->
+	%% downtime since server down
+	gen_fsm:reply(From, {ok,self()}),
+	fsm_next_state(downtime, State);
 downtime({produce_sync, Messages}, From, State)->
     gen_fsm:reply(From, {error, downtime}),
     ekaf_server_lib:save_messages(downtime, State, Messages);
@@ -411,6 +401,12 @@ handle_info({add, queue, Messages}, StateName, #ekaf_server{ messages = OfflineM
     %% when a partition worker dies, its queue gets added to the downtime queue
     %% the downtime queue is flushed when it the connection is good to go again
     fsm_next_state(StateName, State#ekaf_server{ messages = lists:append( OfflineMessages, Messages) });
+
+handle_info(purge_messages, StateName, #ekaf_server{ messages = OfflineMessages } = State)->
+	?INFO_MSG("Purge ~p messages for topic in process ~p~n",
+			 [length(OfflineMessages), self()]),
+    fsm_next_state(StateName, State#ekaf_server{ messages = [] });
+
 handle_info(_Info, StateName, State) ->
     ?INFO_MSG("dont know how to handle ~p during ~p",[_Info, StateName]),
     fsm_next_state(StateName, State).

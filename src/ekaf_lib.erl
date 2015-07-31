@@ -30,13 +30,14 @@
          flush_messages_callback/1, flushed_messages_replied_callback/2
 ]).
 
-prepare(Topic)->
-    ekaf_sup:start_child(ekaf_sup,
-                         {Topic, {ekaf_server, start_link, [[Topic]]},
-                          transient, infinity, worker, []}
-                        ),
+prepare(Topic)->    
     Pid = (catch gproc:where({n,l,Topic})),
     case Pid of
+		undefined ->
+			ekaf_sup:start_child(ekaf_sup,
+								 {Topic, {ekaf_server, start_link, [[Topic]]},
+								  transient, infinity, worker, []}
+								);
         SomePid when is_pid(SomePid)->
             gen_fsm:sync_send_event(Pid, prepare);
         _E ->
@@ -55,7 +56,7 @@ prepare(Topic, Callback)->
         {ok, Pid} ->
             Callback(Pid);
         _ ->
-            ok
+            {error, not_prepared}
     end.
 
 %% Pick a worker, and pass it into the callback

@@ -10,6 +10,7 @@
 -define(EKAF_DEFAULT_PARTITION_STRATEGY          , random).
 -define(EKAF_DEFAULT_PULL_FOR_CHANGES_TIMEOUT    , 60000).
 -define(EKAF_SYNC_TIMEOUT                        , 5000).
+-define(EKAF_CONNECT_TIMEOUT                     , 5000).
 
 %%======================================================================
 %% ekaf specific constants
