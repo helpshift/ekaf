@@ -96,7 +96,20 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
             %% only timeout sends messages every BufferTTL ms
             ekaf_lib:add_message_to_buffer(Messages,State);
         _ ->
-            {ekaf_lib:data_to_message_sets(Messages), State#ekaf_fsm{ cor_id =  State#ekaf_fsm.cor_id+1}}
+            Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER),
+            MessageSets = case Callback of
+                              {CallbackModule,CallbackFunction} ->
+                                  CallbackModule:CallbackFunction
+                                    (?EKAF_CALLBACK_MASSAGE_BUFFER,
+                                     self(),
+                                     ready,
+                                     State,
+                                     lists:reverse(Messages));
+                              undefined ->
+                                  ekaf_lib:data_to_message_sets(Messages)
+                          end,
+            {MessageSets,
+             State#ekaf_fsm{ cor_id =  State#ekaf_fsm.cor_id+length(MessageSets)}}
     end.
 
 handle_reply_when_not_ready(During,  Event, _From, State)->
@@ -121,7 +134,18 @@ spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientI
     Self = self(),
     spawn(
       fun()->
-              MessageSets = ekaf_lib:data_to_message_sets(Messages),
+              Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER),
+              MessageSets = case Callback of
+                                {CallbackModule,CallbackFunction} ->
+                                    CallbackModule:CallbackFunction
+                                      (?EKAF_CALLBACK_MASSAGE_BUFFER,
+                                       self(),
+                                       ready,
+                                       State,
+                                       lists:reverse(Messages));
+                                undefined ->
+                                    ekaf_lib:data_to_message_sets(Messages)
+                            end,
               case MessageSets of
                   [] ->
                       ok;
@@ -140,8 +164,7 @@ spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientI
                                                    }]
                                        },
                       Request = ekaf_protocol:encode_sync(CorId, ClientId, ProducePacket),
-                      ekaf_socket:fork(Self, Socket, {send, produce_sync, Request}),
-                      ?DEBUG_MSG("send cor_id:~p ~p",[CorId,Messages])
+                      ekaf_socket:fork(Self, Socket, {send, produce_sync, Request})
               end
       end),
     State.

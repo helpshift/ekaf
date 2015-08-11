@@ -115,6 +115,8 @@ pick_test_() ->
       , ?_test(t_is_clean())
       ,{spawn, ?_test(?debugVal(t_change_kafka_config()))}
       , ?_test(t_is_clean())
+      ,{spawn, ?_test(?debugVal(t_massage_buffer_encode_messages_as_one_large_message()))}
+      , ?_test(t_is_clean())
       ]}}.
 
 t_pick_from_new_pool()->
@@ -311,6 +313,23 @@ t_max_messages_to_save_during_kafka_downtime()->
         {flush, X3}->
             ?assertEqual(5,length(X3))
     end,
+    ok.
+
+t_massage_buffer_encode_messages_as_one_large_message()->
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER, {ekaf_callbacks,encode_messages_as_one_large_message}),
+    kafka_consumer ! {flush, 1, self()},
+    Event1 = [{<<"id">>, 1}],
+    Event2 = [{<<"id">>, 2}],
+    Response1 = ekaf:produce_async_batched(?TEST_TOPIC, [Event1]),
+    Response2 = ekaf:produce_async_batched(?TEST_TOPIC, [Event2]),
+    ?assertMatch(ok,Response1),
+    ?assertMatch(ok,Response2),
+    timer:sleep(100),
+    receive
+        {flush, [X]}->
+            ?assertEqual([[{<<"id">>, 1}], [{<<"id">>, 2}]], lists:usort(binary_to_term(X)))
+    end,
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER, undefined),
     ok.
 
 t_is_clean()->

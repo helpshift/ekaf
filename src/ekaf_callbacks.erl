@@ -10,7 +10,9 @@
 %%--------------------------------------------------------------------
 -export([
          find/1,
-         call/5
+         call/5,
+         encode_messages_as_one_large_message/5,
+         encode_messages_as_one_large_json/5
         ]).
 
 %% See ekaf/include/ekaf_definitions.hrl for the callbacks
@@ -27,3 +29,10 @@ call(CallbackName, Worker, StateName, State, Reason)->
         _ ->
             ok
     end.
+
+encode_messages_as_one_large_message(_CallbackName, _Worker, _StateName, _State, Messages)->
+    ekaf_lib:data_to_message_sets(term_to_binary(Messages)).
+
+encode_messages_as_one_large_json(_CallbackName, _Worker, _StateName, _State, Messages)->
+    ekaf_lib:data_to_message_sets(jsx:encode(Messages)).
+
