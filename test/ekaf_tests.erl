@@ -115,7 +115,7 @@ pick_test_() ->
       , ?_test(t_is_clean())
       ,{spawn, ?_test(?debugVal(t_change_kafka_config()))}
       , ?_test(t_is_clean())
-      ,{spawn, ?_test(?debugVal(t_massage_buffer_encode_messages_as_one_large_message()))}
+      ,{spawn, ?_test(?debugVal(t_message_buffer_encode_messages_as_one_large_message()))}
       , ?_test(t_is_clean())
       ]}}.
 
@@ -315,8 +315,8 @@ t_max_messages_to_save_during_kafka_downtime()->
     end,
     ok.
 
-t_massage_buffer_encode_messages_as_one_large_message()->
-    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER, {ekaf_callbacks,encode_messages_as_one_large_message}),
+t_message_buffer_encode_messages_as_one_large_message()->
+    application:set_env(ekaf, ?EKAF_CALLBACK_MESSAGE_BUFFER, {ekaf_callbacks,encode_messages_as_one_large_message}),
     kafka_consumer ! {flush, 1, self()},
     Event1 = [{<<"id">>, 1}],
     Event2 = [{<<"id">>, 2}],
@@ -329,7 +329,7 @@ t_massage_buffer_encode_messages_as_one_large_message()->
         {flush, [X]}->
             ?assertEqual([[{<<"id">>, 1}], [{<<"id">>, 2}]], lists:usort(binary_to_term(X)))
     end,
-    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER, undefined),
+    application:set_env(ekaf, ?EKAF_CALLBACK_MESSAGE_BUFFER, undefined),
     ok.
 
 t_is_clean()->

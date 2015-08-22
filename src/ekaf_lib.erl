@@ -96,11 +96,11 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
             %% only timeout sends messages every BufferTTL ms
             ekaf_lib:add_message_to_buffer(Messages,State);
         _ ->
-            Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER),
+            Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MESSAGE_BUFFER),
             MessageSets = case Callback of
                               {CallbackModule,CallbackFunction} ->
                                   CallbackModule:CallbackFunction
-                                    (?EKAF_CALLBACK_MASSAGE_BUFFER,
+                                    (?EKAF_CALLBACK_MESSAGE_BUFFER,
                                      self(),
                                      ready,
                                      State,
@@ -134,11 +134,11 @@ spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientI
     Self = self(),
     spawn(
       fun()->
-              Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER),
+              Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MESSAGE_BUFFER),
               MessageSets = case Callback of
                                 {CallbackModule,CallbackFunction} ->
                                     CallbackModule:CallbackFunction
-                                      (?EKAF_CALLBACK_MASSAGE_BUFFER,
+                                      (?EKAF_CALLBACK_MESSAGE_BUFFER,
                                        self(),
                                        ready,
                                        State,

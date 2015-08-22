@@ -45,7 +45,7 @@
 -define(EKAF_CALLBACK_TIME_TO_CONNECT            , <<"ekaf_callback_time_to_connect">>).
 -define(EKAF_CALLBACK_TIME_DOWN                  , <<"ekaf_callback_time_down">>).
 -define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, <<"ekaf_callback_max_downtime_buffer_reached">>).
--define(EKAF_CALLBACK_MASSAGE_BUFFER             , <<"ekaf_callback_massage_buffer">>).
+-define(EKAF_CALLBACK_MESSAGE_BUFFER             , <<"ekaf_callback_message_buffer">>).
 
 
 %%======================================================================
