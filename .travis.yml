@@ -1,6 +1,7 @@
 language: erlang
 notifications:
   email: bosky101@gmail.com
+sudo: false
 otp_release:
    - 17.0
    - R16B03-1
