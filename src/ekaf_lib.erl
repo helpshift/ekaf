@@ -96,7 +96,7 @@ cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
             %% only timeout sends messages every BufferTTL ms
             ekaf_lib:add_message_to_buffer(Messages,State);
         _ ->
-            Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER),
+            Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM),
             MessageSets = case Callback of
                               {CallbackModule,CallbackFunction} ->
                                   CallbackModule:CallbackFunction
@@ -134,7 +134,7 @@ spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientI
     Self = self(),
     spawn(
       fun()->
-              Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER),
+              Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM),
               MessageSets = case Callback of
                                 {CallbackModule,CallbackFunction} ->
                                     CallbackModule:CallbackFunction
@@ -272,7 +272,7 @@ add_messages_to_sent(Messages, #ekaf_fsm{ kv = KV, cor_id = CorId } = State)->
 flush_messages_callback(State)->
     Self = self(),
     spawn(fun()->
-                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSH),
+                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSH_ATOM),
                   case FlushCallback of
                       {FlushCallbackModule,FlushCallbackFunction} ->
                           FlushCallbackModule:FlushCallbackFunction(?EKAF_CALLBACK_FLUSH, Self, ready, State, undefined);
@@ -286,7 +286,7 @@ flushed_messages_replied_callback(State, Packet)->
     spawn(fun()->
                   Reply = {{replied, State#ekaf_fsm.partition, Self},
                            ekaf_protocol:decode_produce_response(Packet)},
-                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSHED_REPLIED),
+                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSHED_REPLIED_ATOM),
                   case FlushCallback of
                       {FlushCallbackModule,FlushCallbackFunction} ->
                           FlushCallbackModule:FlushCallbackFunction(?EKAF_CALLBACK_FLUSHED_REPLIED, Self, ready, State, {ok,Reply});
@@ -407,24 +407,18 @@ get_default(Topic, Key, Default)->
     case application:get_env(ekaf,Key) of
         {ok,L} when is_list(L)->
             case proplists:get_value(Topic, L) of
-                TopicAtom when is_atom(TopicAtom), TopicAtom =/= undefined->
-                    TopicAtom;
-                TopicMax when is_integer(TopicMax) ->
-                    TopicMax;
+                TopicData when TopicData =/= undefined->
+                    TopicData;
                 _ ->
                     case proplists:get_value(Key, L) of
-                        TopicAtom when is_atom(TopicAtom), TopicAtom =/= undefined->
-                            TopicAtom;
-                        TopicMax when is_integer(TopicMax) ->
-                            TopicMax;
+                        TopicData when TopicData =/= undefined ->
+                            TopicData;
                         _ ->
                            Default
                     end
             end;
-        {ok,TopicAtom} when is_atom(TopicAtom), TopicAtom =/= undefined->
-            TopicAtom;
-        {ok,Max} when is_integer(Max)->
-            Max;
+        {ok,TopicData} when TopicData =/= undefined->
+            TopicData;
         _ ->
             Default
     end.

@@ -43,15 +43,15 @@ demo()->
     %% SET CALLBACKS
     %% here are the various callbacks that you can listen to
     %% more info in the include/ekaf_definitions.hrl file
-    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSH,  {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSHED_REPLIED, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_DOWN, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_UP, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_SAVED, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_REPLAYED, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_TIME_TO_CONNECT, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_TIME_DOWN, {ekaf_demo, demo_callback}),
-    application:set_env(ekaf, ?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSH_ATOM,  {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSHED_REPLIED_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_DOWN_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_UP_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_SAVED_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_DOWNTIME_REPLAYED_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_TIME_TO_CONNECT_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_TIME_DOWN_ATOM, {ekaf_demo, demo_callback}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED_ATOM, {ekaf_demo, demo_callback}),
 
     %% SET STRATEGY AND CONCURRENCY OPTIONS
     application:set_env(ekaf, ekaf_partition_strategy, strict_round_robin),

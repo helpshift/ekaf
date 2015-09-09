@@ -63,7 +63,7 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
 
     %% sync
     {buffered, _Partition, _BufferSize} =
-        ekaf:produce_async_batched(
+        ekaf:produce_sync_batched(
             Topic,
             [ekaf_utils:itob(X) || X<- lists:seq(1,1000) ]
         ).
@@ -75,17 +75,23 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
             [<<"foo">>, {<<"key">>, <<"value">>}, <<"back_to_binary">> ]
         ).
 
+    %% send entire batch as a list of events
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER,
+                              {ekaf_callbacks, 
+                               encode_messages_as_one_large_json}),
+    
+
     %%------------------------
     %% Other helpers that are used internally
     %%------------------------
-    %% reads ekaf_bootstrap_topics. Will also start their workers
-    ekaf:prepare(Topic).
     %% metadata
     %% if you don't want to start workers on app start, make sure to
     %%               first get metadata before any produce/publish
     ekaf:metadata(Topic).
+
     %% pick a worker, and directly communicate with it
     ekaf:pick(Topic,Callback).
+
     %% see the tests for a complete API, and `ekaf.erl` and `ekaf_lib` for more
 
 See `test/ekaf_tests.erl` for more

@@ -94,12 +94,16 @@ downtime(connect, #ekaf_server{ broker = Broker, time = T1 } = State)->
     case ekaf_socket:open(Broker) of
         {ok, Socket} ->
             T2 = os:timestamp(),
-            ekaf_callbacks:call(?EKAF_CALLBACK_TIME_DOWN, self(), downtime, State, {ok,timer:now_diff(T2, T1)}),
+            ekaf_callbacks:call(?EKAF_CALLBACK_TIME_DOWN_ATOM,
+                                ?EKAF_CALLBACK_TIME_DOWN,
+                                self(), downtime, State, {ok,timer:now_diff(T2, T1)}),
             %% connection good, ask for metadata
             gen_fsm:send_event(self(), {metadata, req, Socket}),
             fsm_next_state(downtime, State#ekaf_server{ socket = Socket });
         {error, Reason} ->
-            ekaf_callbacks:call(?EKAF_CALLBACK_WORKER_STILL_DOWN, self(), downtime, State, Reason),
+            ekaf_callbacks:call(?EKAF_CALLBACK_WORKER_STILL_DOWN_ATOM,
+                                ?EKAF_CALLBACK_WORKER_STILL_DOWN,
+                                self(), downtime, State, Reason),
             ekaf_server_lib:reconnect_attempt(),
             fsm_next_state(downtime, State)
     end;
@@ -366,7 +370,9 @@ handle_info({worker, down, WorkerDown, WorkerId, WorkerDownStateName, WorkerDown
                      _ ->
                          Worker
                  end,
-    ekaf_callbacks:call(?EKAF_CALLBACK_WORKER_DOWN, WorkerDown, WorkerDownStateName, WorkerDownState, WorkerDownReason),
+    ekaf_callbacks:call(?EKAF_CALLBACK_WORKER_DOWN_ATOM,
+                        ?EKAF_CALLBACK_WORKER_DOWN,
+                        WorkerDown, WorkerDownStateName, WorkerDownState, WorkerDownReason),
     case NextWorkers of
         [] ->
             ekaf_picker:join_group_if_not_present(Topic, self()),
@@ -384,7 +390,7 @@ handle_info({worker, up, WorkerUp, WorkerUpStateName, WorkerUpState, _}, StateNa
             ok
     end,
 
-    case ekaf_callbacks:find(?EKAF_CALLBACK_WORKER_UP) of
+    case ekaf_callbacks:find(?EKAF_CALLBACK_WORKER_UP_ATOM) of
         {Mod,Func} ->
             Mod:Func(?EKAF_CALLBACK_WORKER_UP, WorkerUp, WorkerUpStateName, WorkerUpState, undefined);
         _ ->

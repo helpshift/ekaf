@@ -96,7 +96,9 @@ connecting(connect, #ekaf_fsm{broker = Broker, buffer_ttl = BufferTTL, time = T1
     case ekaf_socket:open(Broker) of
         {ok,Socket} ->
             T2 = os:timestamp(),
-            ekaf_callbacks:call(?EKAF_CALLBACK_TIME_TO_CONNECT, self(), connecting, State, {ok,timer:now_diff(T2, T1)}),
+            ekaf_callbacks:call(?EKAF_CALLBACK_TIME_TO_CONNECT_ATOM,
+                                ?EKAF_CALLBACK_TIME_TO_CONNECT,
+                                self(), connecting, State, {ok,timer:now_diff(T2, T1)}),
             gen_fsm:send_event(self(), ping),
             gen_fsm:start_timer(BufferTTL,<<"refresh">>),
             fsm_next_state(ready, State#ekaf_fsm{ socket = Socket });

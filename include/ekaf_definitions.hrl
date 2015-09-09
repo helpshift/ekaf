@@ -34,18 +34,32 @@
 
 %%======================================================================
 %% Optional {Mod,Func} callbacks that can be set as an app env to ekaf
+%% NOTE: in your sys.config, and when calling set_env/3,
+%%       use the atoms. In the callbacks though,
+%%       you will get binary, to facilitate easy logging/metrics
 %%======================================================================
 -define(EKAF_CALLBACK_FLUSH                      , <<"ekaf_callback_flush">>).
+-define(EKAF_CALLBACK_FLUSH_ATOM                 ,    ekaf_callback_flush).
 -define(EKAF_CALLBACK_FLUSHED_REPLIED            , <<"ekaf_callback_flushed_replied">>).
+-define(EKAF_CALLBACK_FLUSHED_REPLIED_ATOM       ,    ekaf_callback_flushed_replied).
 -define(EKAF_CALLBACK_WORKER_DOWN                , <<"ekaf_callback_worker_down">>).
+-define(EKAF_CALLBACK_WORKER_DOWN_ATOM           ,    ekaf_callback_worker_down).
 -define(EKAF_CALLBACK_WORKER_STILL_DOWN          , <<"ekaf_callback_worker_still_down">>).
+-define(EKAF_CALLBACK_WORKER_STILL_DOWN_ATOM     ,    ekaf_callback_worker_still_down).
 -define(EKAF_CALLBACK_WORKER_UP                  , <<"ekaf_callback_worker_up">>).
+-define(EKAF_CALLBACK_WORKER_UP_ATOM             ,    ekaf_callback_worker_up).
 -define(EKAF_CALLBACK_DOWNTIME_SAVED             , <<"ekaf_callback_downtime_saved">>).
+-define(EKAF_CALLBACK_DOWNTIME_SAVED_ATOM        ,    ekaf_callback_downtime_saved).
 -define(EKAF_CALLBACK_DOWNTIME_REPLAYED          , <<"ekaf_callback_downtime_replayed">>).
+-define(EKAF_CALLBACK_DOWNTIME_REPLAYED_ATOM     ,    ekaf_callback_downtime_replayed).
 -define(EKAF_CALLBACK_TIME_TO_CONNECT            , <<"ekaf_callback_time_to_connect">>).
+-define(EKAF_CALLBACK_TIME_TO_CONNECT_ATOM       ,   ekaf_callback_time_to_connect).
 -define(EKAF_CALLBACK_TIME_DOWN                  , <<"ekaf_callback_time_down">>).
--define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, <<"ekaf_callback_max_downtime_buffer_reached">>).
+-define(EKAF_CALLBACK_TIME_DOWN_ATOM             ,    ekaf_callback_time_down).
+-define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED  , <<"ekaf_callback_max_downtime_buffer_reached">>).
+-define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED_ATOM, ekaf_callback_max_downtime_buffer_reached).
 -define(EKAF_CALLBACK_MASSAGE_BUFFER             , <<"ekaf_callback_massage_buffer">>).
+-define(EKAF_CALLBACK_MASSAGE_BUFFER_ATOM        ,    ekaf_callback_massage_buffer).
 
 
 %%======================================================================

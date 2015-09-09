@@ -93,7 +93,7 @@ save_messages(StateName, #ekaf_server{ messages = OfflineMessages, worker = Work
             fsm_next_state(StateName, State);
         _ ->
             Self = self(),
-            case ekaf_callbacks:find(?EKAF_CALLBACK_DOWNTIME_SAVED) of
+            case ekaf_callbacks:find(?EKAF_CALLBACK_DOWNTIME_SAVED_ATOM) of
                 {Mod,Func} ->
                     Mod:Func(?EKAF_CALLBACK_DOWNTIME_SAVED, Self, StateName, State, {ok, Messages});
                 _ ->
@@ -109,7 +109,7 @@ send_messages(StateName, #ekaf_server{ topic = Topic } = State, Messages)->
             ok;
         _ ->
             Self = self(),
-            case ekaf_callbacks:find(?EKAF_CALLBACK_DOWNTIME_REPLAYED) of
+            case ekaf_callbacks:find(?EKAF_CALLBACK_DOWNTIME_REPLAYED_ATOM) of
                 {Mod,Func} ->
                     Mod:Func(?EKAF_CALLBACK_DOWNTIME_REPLAYED, Self, StateName, State, {ok, Messages });
                 _ ->
@@ -139,7 +139,7 @@ save_messages_until(StateName, State, TempMessages, OfflineMessages, MaxDowntime
     Combined = Messages ++ OfflineMessages,
     case length(Combined) of
         BigLen when BigLen > MaxDowntimeBufferSize ->
-            case ekaf_callbacks:find(?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED) of
+            case ekaf_callbacks:find(?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED_ATOM) of
                 {Mod,Func} ->
                     Self = self(),
                     Mod:Func(?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, Self, StateName, State, {ok, OfflineMessages});

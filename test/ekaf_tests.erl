@@ -65,9 +65,9 @@ pick_test_() ->
              application:set_env(kafkamocker, kafkamocker_bootstrap_topics, [Topic]),
              application:set_env(kafkamocker, kafkamocker_bootstrap_broker, {"localhost",9907}),
 
-             application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_UP, {?MODULE,callback}),
-             application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_DOWN, {?MODULE,callback}),
-             application:set_env(ekaf, ?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED, {?MODULE, callback}),
+             application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_UP_ATOM, {?MODULE,callback}),
+             application:set_env(ekaf, ?EKAF_CALLBACK_WORKER_DOWN_ATOM, {?MODULE,callback}),
+             application:set_env(ekaf, ?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED_ATOM, {?MODULE, callback}),
 
              application:set_env(ekaf, ekaf_per_partition_workers, 1),
              application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost",9907}),
@@ -316,7 +316,7 @@ t_max_messages_to_save_during_kafka_downtime()->
     ok.
 
 t_massage_buffer_encode_messages_as_one_large_message()->
-    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER, {ekaf_callbacks,encode_messages_as_one_large_message}),
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, {ekaf_callbacks,encode_messages_as_one_large_message}),
     kafka_consumer ! {flush, 1, self()},
     Event1 = [{<<"id">>, 1}],
     Event2 = [{<<"id">>, 2}],
@@ -329,7 +329,7 @@ t_massage_buffer_encode_messages_as_one_large_message()->
         {flush, [X]}->
             ?assertEqual([[{<<"id">>, 1}], [{<<"id">>, 2}]], lists:usort(binary_to_term(X)))
     end,
-    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER, undefined),
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined),
     ok.
 
 t_is_clean()->
