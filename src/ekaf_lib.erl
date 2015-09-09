@@ -90,13 +90,13 @@ common_sync(Event, Topic, Data, Timeout)->
 
 cursor(_,[], State)->
     {[], State};
-cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer}=State)->
+cursor(BatchEnabled,Messages,#ekaf_fsm{ to_buffer = _ToBuffer, topic = Topic }=State)->
     case BatchEnabled of
         true ->
             %% only timeout sends messages every BufferTTL ms
             ekaf_lib:add_message_to_buffer(Messages,State);
         _ ->
-            Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM),
+            Callback = ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined),
             MessageSets = case Callback of
                               {CallbackModule,CallbackFunction} ->
                                   CallbackModule:CallbackFunction
@@ -130,11 +130,12 @@ spawn_inactivity_timeout([],State)->
     State;
 spawn_inactivity_timeout(_,#ekaf_fsm{socket = undefined} = State)->
     State;
-spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientId, socket = Socket, topic_packet = DefTopicPacket, partition_packet = DefPartitionPacket, produce_packet = DefProducePacket} = State)->
+spawn_inactivity_timeout(Messages, #ekaf_fsm{cor_id = CorId, client_id = ClientId, socket = Socket, topic_packet = DefTopicPacket,
+                                             partition_packet = DefPartitionPacket, produce_packet = DefProducePacket, topic = Topic} = State)->
     Self = self(),
     spawn(
       fun()->
-              Callback = ekaf_callbacks:find(?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM),
+              Callback = ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined),
               MessageSets = case Callback of
                                 {CallbackModule,CallbackFunction} ->
                                     CallbackModule:CallbackFunction

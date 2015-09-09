@@ -84,7 +84,9 @@ pick_test_() ->
              ok
      end,
      [
-       {timeout, 5, ?_test(?debugVal(t_pick_from_new_pool()))}
+      {timeout, 5, ?_test(?debugVal(t_reading_topic_specific_envs()))}
+      , ?_test(t_is_clean())
+      , {spawn, ?_test(?debugVal(t_pick_from_new_pool()))}
       , ?_test(t_is_clean())
       , {spawn, ?_test(?debugVal(t_request_metadata()))}
       , ?_test(t_is_clean())
@@ -118,6 +120,48 @@ pick_test_() ->
       ,{spawn, ?_test(?debugVal(t_massage_buffer_encode_messages_as_one_large_message()))}
       , ?_test(t_is_clean())
       ]}}.
+
+t_reading_topic_specific_envs()->
+    Topic = ?TEST_TOPIC,
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, {mod,func}),
+    ?assertMatch({mod,func},
+                 ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, [{Topic, {mod,func1}},
+                                                                   {<<"topic2">>, {mod,func2}},
+                                                                   {?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM,{mod,func3}}]),
+    ?assertMatch({mod,func1},
+                 ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch({mod,func3},
+                 ekaf_lib:get_default(<<"topic1">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch({mod,func2},
+                 ekaf_lib:get_default(<<"topic2">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch({mod,func3},
+                 ekaf_lib:get_default(<<"topic3">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, [{<<"topic1">>, {mod,func1}},
+                                                                   {<<"topic2">>, {mod,func2}}]),
+    ?assertMatch(undefined,
+                 ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch({mod,func1},
+                 ekaf_lib:get_default(<<"topic1">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch({mod,func2},
+                 ekaf_lib:get_default(<<"topic2">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch(undefined,
+                 ekaf_lib:get_default(<<"topic3">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+
+    application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined),
+
+    ?assertMatch(undefined,
+                 ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch(undefined,
+                 ekaf_lib:get_default(<<"topic1">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch(undefined,
+                 ekaf_lib:get_default(<<"topic2">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)),
+    ?assertMatch(undefined,
+                 ekaf_lib:get_default(<<"topic3">>, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined)).
+
+
 
 t_pick_from_new_pool()->
     Topic = ?TEST_TOPIC,
@@ -326,10 +370,24 @@ t_massage_buffer_encode_messages_as_one_large_message()->
     ?assertMatch(ok,Response2),
     timer:sleep(100),
     receive
-        {flush, [X]}->
-            ?assertEqual([[{<<"id">>, 1}], [{<<"id">>, 2}]], lists:usort(binary_to_term(X)))
+        {flush, [X1]}->
+            ?assertEqual([[{<<"id">>, 1}], [{<<"id">>, 2}]], lists:usort(binary_to_term(X1)))
     end,
+    %% done sending batch as 1 event
     application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER_ATOM, undefined),
+    %% turning off sending batch, must bring back 2 events
+    kafka_consumer ! {flush, 2, self()},
+    Event3 = <<"id3">>,
+    Event4 = <<"id4">>,
+    Response3 = ekaf:produce_async_batched(?TEST_TOPIC, [Event3]),
+    Response4 = ekaf:produce_async_batched(?TEST_TOPIC, [Event4]),
+    ?assertMatch(ok,Response3),
+    ?assertMatch(ok,Response4),
+    timer:sleep(100),
+    receive
+        {flush, X2}->
+            ?assertEqual([<<"id3">>, <<"id4">>], lists:usort(X2))
+    end,
     ok.
 
 t_is_clean()->
