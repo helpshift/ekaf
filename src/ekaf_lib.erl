@@ -6,7 +6,7 @@
          %% API
          prepare/1, prepare/2,
          common_async/3,
-         common_sync/3, common_sync/4,
+         common_sync/3, common_sync/4, common_sync/5,
          start_child/5, stop_child/1,
 
          %% read configs per topic
@@ -27,7 +27,10 @@
          %% helpers
          data_to_message_sets/1, data_to_message_set/1,response_to_proplist/1,
          add_message_to_buffer/2, pop_messages_from_buffer/2, add_messages_to_sent/2,
-         flush_messages_callback/1, flushed_messages_replied_callback/2
+         flush_messages_callback/1, flushed_messages_replied_callback/2,
+
+         %% metadata helpers
+         partitions/1
 ]).
 
 prepare(Topic)->
@@ -58,6 +61,35 @@ prepare(Topic, Callback)->
             ok
     end.
 
+%% When a key is passed, it is assumed that you will shard it to a partition
+%% if a callback fails or is not found, a default strategy will be chosen
+common_async(Event, Topic, {Key,Data})->
+    common_async(Event, Topic, [{Key,Data}]);
+common_async(_, _, [])->
+    ok;
+common_async(Event, Topic, [{Key,Data}|Rest])->
+    case gproc:where({n,l,Topic}) of
+        undefined ->
+            prepare(Topic, fun(_)->
+                                   common_async(Event, Topic, {Key,Data})
+                           end);
+        TopicWorker ->
+            TopicWorker ! {pick, {Key,Data}, self()},
+            receive
+                {ok,Worker} ->
+                    case Worker of
+                        {error,{retry,_N}} ->
+                            common_async(Event, Topic, {Key,Data});
+                        {error,_}=E ->
+                            E;
+                        _ ->
+                            gen_fsm:send_event(Worker, {Event, [{Key,Data}]}),
+                            common_async(Event, Topic, Rest)
+                    end;
+                _E ->
+                    common_async(Event, Topic, Rest)
+            end
+    end;
 %% Pick a worker, and pass it into the callback
 %% usually, callback(worker) blocks on the worker
 %% but ekaf:pick creates a new process that blocks instead
@@ -75,17 +107,48 @@ common_async(Event, Topic, Data)->
                      end),
     ok.
 
+%% When a key is passed, it is assumed that you will shard it to a partition
+%% if a callback fails or is not found, a default strategy will be chosen
 common_sync(Event, Topic, Data)->
     common_sync(Event, Topic, Data, ?EKAF_SYNC_TIMEOUT).
+common_sync(Event, Topic, {Key,Data}, Timeout)->
+    common_sync(Event, Topic, [{Key,Data}], Timeout);
+common_sync(Event, Topic, [{_Key,_}|_]=Data, Timeout)->
+    common_sync(Event, Topic, Data, Timeout, []);
 common_sync(Event, Topic, Data, Timeout)->
     Worker = ekaf:pick(Topic),
     case Worker of
         {error,{retry,_N}} ->
-            common_sync(Event, Topic, Data);
+            common_sync(Event, Topic, Data, Timeout);
         {error,_}=E ->
             E;
         _ ->
             gen_fsm:sync_send_event(Worker, {Event, Data}, Timeout)
+    end.
+common_sync(_, _, [], _, Results)->
+    lists:reverse(Results);
+common_sync(Event, Topic, [{Key,Data}|Rest]=AllData, Timeout, Results)->
+    case gproc:where({n,l,Topic}) of
+        undefined ->
+            prepare(Topic, fun(_)->
+                                   common_sync(Event, Topic, AllData, Timeout, Results)
+                           end);
+        TopicWorker ->
+            TopicWorker ! {pick, {Key,Data}, self()},
+            receive
+                {ok,Worker} ->
+                    case Worker of
+                        {error,{retry,_N}} ->
+                            common_sync(Event, Topic, {Key,Data}, Timeout, Results);
+                        {error,_}=E ->
+                            E;
+                        _ ->
+                            CurrResult = gen_fsm:sync_send_event(Worker, {Event, [{Key,Data}]}),
+                            common_sync(Event, Topic, Rest, Timeout, [CurrResult | Results])
+                    end;
+                _E ->
+                    common_sync(Event, Topic, Rest, Timeout, [_E|Results])
+            end
     end.
 
 cursor(_,[], State)->
@@ -433,6 +496,15 @@ get_pool_name({PoolName, Topic, Broker, PartitionId, Leader })->
 get_pool_name({Topic, Broker, PartitionId, Leader })->
     NextPoolName = {Topic, Broker, PartitionId, Leader },
     ekaf_utils:btoatom(ekaf_utils:itob(erlang:phash2(NextPoolName))).
+
+partitions(#ekaf_server{metadata = Metadata})->
+    partitions(Metadata);
+partitions(#ekaf_fsm{metadata = Metadata})->
+    partitions(Metadata);
+partitions(#metadata_response{ topics = [Topic|_] })->
+    partitions(Topic);
+partitions(#topic { partitions = Partitions }) ->
+    Partitions.
 
 fsm_next_state(StateName,State)->
     {next_state, StateName, State}.

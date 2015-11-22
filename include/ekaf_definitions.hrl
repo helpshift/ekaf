@@ -58,8 +58,11 @@
 -define(EKAF_CALLBACK_TIME_DOWN_ATOM             ,    ekaf_callback_time_down).
 -define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED  , <<"ekaf_callback_max_downtime_buffer_reached">>).
 -define(EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED_ATOM, ekaf_callback_max_downtime_buffer_reached).
+%% the following callbacks are not side-effects
 -define(EKAF_CALLBACK_MASSAGE_BUFFER             , <<"ekaf_callback_massage_buffer">>).
 -define(EKAF_CALLBACK_MASSAGE_BUFFER_ATOM        ,    ekaf_callback_massage_buffer).
+-define(EKAF_CALLBACK_CUSTOM_PARTITION_PICKER    , <<"ekaf_callback_custom_partition_picker">>).
+-define(EKAF_CALLBACK_CUSTOM_PARTITION_PICKER_ATOM,   ekaf_callback_custom_partition_picker).
 
 
 %%======================================================================

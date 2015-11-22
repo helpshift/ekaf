@@ -201,6 +201,9 @@ ready({set,max_buffer_size,N}, _From, State) ->
 ready(buffer_size, _From, State) ->
     Reply = length( State#ekaf_fsm.buffer),
     {reply, Reply, ready, State};
+ready(partition, _From, State)->
+    Reply = State#ekaf_fsm.partition,
+    {reply, Reply, ready, State};
 ready(info, _From, State) ->
     Reply = State,
     {reply, Reply, ready, State};

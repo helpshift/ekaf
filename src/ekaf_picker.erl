@@ -1,7 +1,9 @@
 -module(ekaf_picker).
 -export([pick/1, pick/2, pick/3, pick/4]).
 -export([pick_sync/3, pick_sync/4,
-        pick_async/2, join_group_if_not_present/2]).
+        pick_async/2, join_group_if_not_present/2,
+
+        pick_first_matching/3]).
 
 -include("ekaf_definitions.hrl").
 
@@ -94,4 +96,16 @@ join_group_if_not_present(PG, Pid)->
             ok;
         _ ->
             pg2:join(PG, Pid)
+    end.
+
+pick_first_matching([], _, DefaultWorker)->
+    DefaultWorker;
+pick_first_matching([Worker|Workers], Pred, DefaultWorker)->
+    case (catch Pred(Worker)) of
+        true ->
+            Worker;
+        false ->
+            pick_first_matching(Workers, Pred, DefaultWorker);
+        _ ->
+            DefaultWorker
     end.

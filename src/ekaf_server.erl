@@ -247,7 +247,10 @@ ready(Msg, State) ->
 %%--------------------------------------------------------------------
 ready(info, _From, State)->
     Reply = State,
-    {reply, Reply, State};
+    {reply, Reply, ready, State};
+ready(workers, _From, State)->
+    Reply = State#ekaf_server.workers,
+    {reply, Reply, ready, State};
 ready({produce_sync, Messages}, _From, State)->
     ekaf_server_lib:save_messages(ready, State, Messages);
 ready(prepare, From, #ekaf_server{ kv = KV } = State)->
@@ -334,12 +337,58 @@ handle_info({pick, _Topic, Callback}, ready, #ekaf_server{ strategy = strict_rou
 handle_info({pick, _Topic, Callback}, ready, #ekaf_server{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
     Callback ! {ok, Worker},
     fsm_next_state(ready, State#ekaf_server{ ctr = Ctr + 1});
+%% if this strategy has been decided (can be configured for all topics, or for specific topics)
+%% then all messages of a tuple form {Key,Bin} will be passed to a function to decide the partition based on Key
+handle_info({pick, Data, Callback}, ready, #ekaf_server{ topic = Topic, strategy = custom,
+                                                         workers = [FirstWorker|RestWorkers] = Workers} = State) ->
+    {M,F} = ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_CUSTOM_PARTITION_PICKER_ATOM, {ekaf_callbacks, default_custom_partition_picker}),
+    {FinalWorker, Next} =
+        case (catch M:F(Topic, Data, State)) of
+            %% the custom partition cannot or chose not to send the message
+            {error,_} = _E ->
+                {_E, State};
+
+            %% the partitioner knows which partition to use
+            {partition, Partition} ->
+                Pred = fun(SomeWorker)->
+                               Partition =:= gen_fsm:sync_send_event(SomeWorker, partition)
+                       end,
+
+                % round robin a worker from the chosen partition
+                CustomWorker = ekaf_picker:pick_first_matching(Workers, Pred, FirstWorker),
+                CustomState = State#ekaf_server{ workers = lists:append(Workers--[CustomWorker],
+                                                                        [CustomWorker])},
+
+                {CustomWorker,CustomState};
+
+            %% the partitioner knows exactly the worker to use
+            {worker, CustomWorker, CustomWorkers} ->
+                CustomState = State#ekaf_server{ workers = CustomWorkers },
+                {CustomWorker, CustomState};
+
+            _ ->
+                %% the custom partition gives up, and wants us to decide
+                %% similiar to round robin
+                {FirstWorker,
+                 State#ekaf_server{ workers = lists:append(RestWorkers,[FirstWorker])}}
+        end,
+
+    case FinalWorker of
+        {error,_} = Er ->
+            %% don't send the message because of an error
+            Callback ! Er;
+        _ ->
+            Callback ! {ok, FinalWorker}
+    end,
+    fsm_next_state(ready, Next);
 handle_info({pick, _Topic, Callback}, ready, #ekaf_server{ worker = Worker} = State) ->
     Callback ! {ok, Worker},
     fsm_next_state(ready, State);
 handle_info({pick, _, Callback}, StateName, State)->
     Callback ! {ok, self()},
     fsm_next_state(StateName, State);
+handle_info({worker, enqueue, Worker}, ready, #ekaf_server{ workers = Workers} = State) ->
+    fsm_next_state(ready, State#ekaf_server{ workers = lists:append(Workers--[Worker],[Worker])} );
 handle_info({worker, down, WorkerDown, WorkerId, WorkerDownStateName, WorkerDownState, WorkerDownReason}, _StateName, #ekaf_server{ topic = Topic, worker = Worker, ongoing_metadata = RequestedMetadata, workers = Workers } =  State)->
     ekaf_lib:stop_child(WorkerId),
     case RequestedMetadata of

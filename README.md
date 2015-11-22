@@ -79,6 +79,12 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
     application:set_env(ekaf, ?EKAF_CALLBACK_MASSAGE_BUFFER,
                               {ekaf_callbacks, 
                                encode_messages_as_one_large_json}),
+
+
+    %% route to a partition based on a key or list of tuples ( see below on default, custom logic)
+    ekaf:produce_async(<<"topic">>, {<<"user1">>,<<"foobar">>}). 
+    ekaf:produce_sync(<<"topic">>, [{<<"user1">>, <<"foo">>},  {<<"user2">>, <<"bar">>}]).
+    ekaf:produce_async_batched(...
     
 
     %%------------------------
@@ -90,7 +96,8 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
     ekaf:metadata(Topic).
 
     %% pick a worker, and directly communicate with it
-    ekaf:pick(Topic,Callback).
+    ekaf:pick(Topic). %synchronous
+    ekaf:pick(Topic,Callback). %asynchronous
 
     %% see the tests for a complete API, and `ekaf.erl` and `ekaf_lib` for more
 
@@ -202,11 +209,24 @@ eg: if you want every messages to go to a different partition, you may need 1 wo
 
 eg: if you have 100 workers per partition and have chosen strict_round_robin, the first 100 events will go to partition1, the next 100 to partition 2, etc
 
-Again, you can configure the same strategy for all topics, or pick different for different topics
+#### custom
+
+If this strategy has been decided (can be configured for all topics, or for specific topics) then all messages of a tuple form {Key,Bin} will be passed to a function to decide the partition based on Key
+
+    ekaf:produce_async_batched(<<"topic">>, {<<"user1">>,<<"foobar">>}).
+    ekaf:produce_sync(<<"topic">>, [{<<"user1">>, <<"foo">>},  {<<"user2">>, <<"bar">>}]).
+    % internally if there are 5 partitions then `erlang:phash2(<<"user1">>) rem 5` is done
+    % to choose a partition. within the partition, workers are again 
+    % round robin'd even when publishing to the same Key. But you can over-ride the
+    % default ekaf_callbacks:default_custom_partition_picker/3 implementation
+
+
+NOTE: You can configure the same strategy for all topics, or pick different for different topics
 
     {ekaf_partition_strategy, [
      {<<"heavy_job">>, strict_round_robin},
      {<<"other_event">>, sticky_round_robin},
+     {<<"user_actions">>, custom}, %route to partition based on message key
      {ekaf_partition_strategy,  random}      %% default
     ]}
 
@@ -237,6 +257,7 @@ Each Topic, will have a pg2 process group, You can pick a random partition worke
     end).
 
     %% pick/1 and pick/2 also exist for synchronously choosing a worker
+    %% picking a worker based on the data is a new functionality added in 1.6.0
 
 ### Fault tolerant
 
@@ -263,32 +284,17 @@ Current callbacks include when the buffer is flushed.
     ]}.
 
     %% mystats.erl
-    callback_flush(Topic, Broker, PartitionId, BufferLength, From, CorId)->
-        spawn(fun()->
-                  %io:format("~n flush broker: ~p partition ~p when size was ~p corid ~p worker: ~p",[Broker, PartitionId, Len, CorId, From]),
-                  % eg:          flush partition 0, when size was 5025 corid 8899
+    demo_callback(Event, _From, _StateName,
+		#ekaf_fsm{ topic = Topic, broker = _Broker, partition = PartitionId, last_known_size = BufferLength, cor_id = CorId, leader = Leader},
+		Extra)->
+	Stat = <<Topic/binary,".",  Event/binary, ".broker", (ekaf_utils:itob(Leader))/binary, ".", (ekaf_utils:itob(PartitionId))/binary>>,
+	case Event of
+	  ?EKAF_CALLBACK_FLUSH ->
+		io:format("~n ~p flush broker~w#~p when size was ~p corid ~p via:~p",
+                          [Topic, Leader, PartitionId, BufferLength, CorId, _From]);
+	...
 
-                  % histogram gives rates/sec
-                  statman_histogram:record_value({<<"/ekaf.",Topic/binary>>,<<"partition.", (ekaf_utils:itob(PartitionId))/binary,".flushed">>}, CorId),
-
-                  % gauges for values
-                  statman_gauge:set({<<"ekaf.",Topic/binary>>,<<"partition.", (ekaf_utils:itob(PartitionId))/binary,".batch.size">>}, Len),
-                  statman_gauge:set({<<"ekaf.",Topic/binary>>,<<"partition.", (ekaf_utils:itob(PartitionId))/binary,".sent">>}, CorId)
-        end).
-
-Here is an example of instrumenting ekaf with the included `ekaf_stats` module and `statman` ( https://github.com/knutin/statman_elli )...
-
-    {ok, _} = statman_poller_sup:add_gauge(fun()-> ekaf_lib:instrument_topics(<<"events">>) end, 5000),
-    {ok, _} = statman_poller_sup:add_gauge(fun()-> ekaf_lib:get_info(<<"events">>, <<"buffer.size">>) end, 5000),
-    {ok, _} = statman_poller_sup:add_gauge(fun()-> ekaf_lib:get_info(<<"events">>, <<"buffer.max">>) end, 5000),
-    {ok, _} = statman_poller_sup:add_gauge( fun statman_vm_metrics:get_gauges/0),
-    ok.
-
-...will generate gauges on statman like this.
-
-![screenshot-instrumentable](/benchmarks/screenshot-ekaf-instrumentable-eg-statman.png)
-
-We have changed this to work with statsite/statsd/grafana as well.
+The first argument being binary, can easily be pushed into statsite/statsd/graphite/grafana
 
 ### State Machines ###
 Each worker is a finite state machine powered by OTP's gen_fsm as opposed to gen_server which is more of a client-server model. Which makes it easy to handle connections breaking, and adding more features in the future. In fact every new topic spawns a worker that first starts in a bootstrapping state until metadata is retrieved. This is a blocking call.
@@ -328,8 +334,13 @@ Choosing a worker is done by a worker of `ekaf_server` for every topic. It looks
         % else the default is random
 
         % optional
-        {ekaf_callback_flush, {mystats,callback_flush}}
+        {ekaf_callback_flush, {mystats,callback_flush}},
         % can be used for instrumentating how how batches are sent & hygeine
+
+        % optional
+        {ekaf_callback_custom_partition_picker, {ekaf_callbacks, 
+                                                 default_custom_partition_picker}} 
+        % to always route messages with keys to the same partition
 
     ]},
 
