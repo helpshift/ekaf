@@ -240,7 +240,7 @@ Deals with the protcol completely in erlang. Pattern matching FTW, see the blogp
 In production having when 100's of workers pushing to your favorite statsd client, you may find your statsd client becomeing a bottleneck. Enabling the `?EKAF_PUSH_TO_STATSD_ENABLED` at a global or topic level, allows each worker to maintain reference to a UDP socket, so that pushing metrics is naturally load balanced.Enabling this option does not begin sending metrics automatically. Your callback needs to do so like shown below.
 
     % Set the ekaf app options before ekaf starts (or in your config file)
-    % to enable the push to statsd option, and register your callback
+    % to enable the push to statsd option (since 1.5.4), register your callback
     application:set_env(ekaf, ?EKAF_PUSH_TO_STATSD_ENABLED, true),
     application:set_env(ekaf, ?EKAF_CALLBACK_FLUSH_ATOM,  {ekaf_demo, demo_callback}),
     
