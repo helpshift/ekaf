@@ -90,7 +90,7 @@ handle_callback(Callback, Pid)->
     end.
 
 join_group_if_not_present(PG, Pid)->
-    Pids = pg2:get_members(PG),
+    Pids = pg2:get_local_members(PG),
     case lists:member(Pid, Pids) of
         true ->
             ok;
