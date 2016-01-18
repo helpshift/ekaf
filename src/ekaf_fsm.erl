@@ -63,6 +63,7 @@ init([WorkerId, PoolName, Metadata, Broker, Topic, Leader, Partition]) ->
       topics= [TopicPacket]
      },
     BufferTTL = ekaf_lib:get_buffer_ttl(Topic),
+    StatsSocket = ekaf_lib:open_socket_if_statsd_enabled(Topic),
     State = #ekaf_fsm{
       id = WorkerId,
       pool = PoolName,
@@ -77,7 +78,8 @@ init([WorkerId, PoolName, Metadata, Broker, Topic, Leader, Partition]) ->
       partition_packet = PartitionPacket,
       topic_packet = TopicPacket,
       produce_packet = ProducePacket,
-      time = os:timestamp()
+      time = os:timestamp(),
+      statsd_socket = StatsSocket
      },
     reconnection_attempt(),
     {ok, connecting, State}.

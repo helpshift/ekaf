@@ -68,7 +68,8 @@ init([Topic])->
     pg2:create(Topic),
     ekaf_picker:join_group_if_not_present(Topic, self()),
     gen_fsm:send_event(self(), connect),
-    {ok, downtime, State#ekaf_server{topic = Topic, worker = Self}};
+    StatsSocket = ekaf_lib:open_socket_if_statsd_enabled(Topic),
+    {ok, downtime, State#ekaf_server{topic = Topic, worker = Self, statsd_socket = StatsSocket}};
 init(_Args) ->
     State = generic_init(any),
     {ok, downtime, State}.

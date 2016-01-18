@@ -236,14 +236,35 @@ Does not need a connection to Zookeeper for broker info, etc. This adopts the pa
 ### No linked drivers, No NIF's, Minimal Deps.   ###
 Deals with the protcol completely in erlang. Pattern matching FTW, see the blogpost that inspired this project ( also see https://coderwall.com/p/1lyfxg ). Uses gproc for process registry.
 
+### Option to re-use worker pool as statsd worker pool to push metrics
+In production having when 100's of workers pushing to your favorite statsd client, you may find your statsd client becomeing a bottleneck. Enabling the `?EKAF_PUSH_TO_STATSD_ENABLED` at a global or topic level, allows each worker to maintain reference to a UDP socket, so that pushing metrics is naturally load balanced.Enabling this option does not begin sending metrics automatically. Your callback needs to do so like shown below.
+
+    % Set the ekaf app options before ekaf starts (or in your config file)
+    % to enable the push to statsd option, and register your callback
+    application:set_env(ekaf, ?EKAF_PUSH_TO_STATSD_ENABLED, true),
+    application:set_env(ekaf, ?EKAF_CALLBACK_FLUSH_ATOM,  {ekaf_demo, demo_callback}),
+    
+    % Then to get the metric ekaf.events.broker1.0 => N do
+    
+    demo_callback(Event, _From, _StateName, 
+                #ekaf_fsm{ topic = Topic, partition = PartitionId, last_known_size = BufferLength, leader = Leader} = State,
+                Extra)->
+        Stat = <<Topic/binary,".",  Event/binary, ".broker", (ekaf_utils:itob(Leader))/binary, ".", (ekaf_utils:itob(PartitionId))/binary>>,
+        case Event of
+        ?EKAF_CALLBACK_FLUSH ->
+            ekaf_stats:udp_gauge(State#ekaf_fsm.statsd_socket,
+                                 Stat,
+                                 BufferLength),
+            ok;
+
 ### Optimized for using on a cluster ###
 * Works well if embedding into other OTP/rebar style apps ( eg: tested with `kafboy`)
 * Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_broker,Broker}` during the first produce to a topic, and then caches this data for that topic.
 * Extensive use of records for `O(1)` lookup
 * By using binary as the preferred format for Topic, etc, - lists are avoided in all places except the `{BrokerHost,_Port}`.
 
-### Concurrency when publishing to multiple topics via process groups ###
-Each Topic, will have a pg2 process group, You can pick a random partition worker for a topic via
+### Concurrency when publishing to multiple topics ###
+Each Topic, will have a pg2 process group, but maintaining the pool is done internally for maintaining round-robin, etc. You can pick a random partition worker for a topic via
 
     ekaf:pick(<<"topic_foo">>, fun(Worker) ->
         case Worker of

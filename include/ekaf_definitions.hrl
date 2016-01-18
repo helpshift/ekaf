@@ -9,6 +9,8 @@
 -define(EKAF_DEFAULT_BUFFER_TTL                  , 5000).
 -define(EKAF_DEFAULT_PARTITION_STRATEGY          , random).
 -define(EKAF_DEFAULT_PULL_FOR_CHANGES_TIMEOUT    , 60000).
+-define(EKAF_PUSH_TO_STATSD_ENABLED              , ekaf_push_to_statsd_enabled).
+-define(EKAF_DEFAULT_PUSH_TO_STATSD_ENABLED      , false).
 -define(EKAF_SYNC_TIMEOUT                        , 5000).
 
 %%======================================================================
@@ -115,9 +117,47 @@
 %%======================================================================
 %% Records
 %%======================================================================
-%% Used by workers
--record(ekaf_server, {broker, strategy, worker, workers=[], topic, messages=[]::list(), socket, cor_id=0::integer(), max_buffer_size::integer(), max_downtime_buffer_size::integer(), kv, ctr=0::integer(), metadata, ongoing_metadata=false::boolean(), time}).
--record(ekaf_fsm, { id::integer(), topic::binary(), broker:: tuple(), partition::integer(), replica::integer(), leader::integer(), socket :: port(), pool::atom(), metadata, cor_id = 0 :: integer(), client_id = "ekaf", reply_to, buffer=[]::list(), max_buffer_size = 1, buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL, kv, to_buffer = true::boolean(), last_known_size :: integer(), topic_packet, partition_packet, produce_packet, time}).
+%% Used by each topic workers
+-record(ekaf_server, {broker,
+                      strategy,
+                      worker,
+                      workers=[],
+                      topic,
+                      messages=[]::list(),
+                      socket,
+                      cor_id=0::integer(),
+                      max_buffer_size::integer(),
+                      max_downtime_buffer_size::integer(),
+                      kv,
+                      ctr=0::integer(),
+                      metadata,
+                      ongoing_metadata=false::boolean(),
+                      time,
+                      statsd_socket}).
+%% Used by topic workers
+-record(ekaf_fsm, { id::integer(),
+                    topic::binary(),
+                    broker:: tuple(),
+                    partition::integer(),
+                    replica::integer(),
+                    leader::integer(),
+                    socket :: port(),
+                    pool::atom(),
+                    metadata,
+                    cor_id = 0 :: integer(),
+                    client_id = "ekaf",
+                    reply_to,
+                    buffer=[]::list(),
+                    max_buffer_size = 1,
+                    buffer_ttl = ?EKAF_DEFAULT_BUFFER_TTL,
+                    kv,
+                    to_buffer = true::boolean(),
+                    last_known_size :: integer(),
+                    topic_packet,
+                    partition_packet,
+                    produce_packet,
+                    time,
+                    statsd_socket}).
 
 
 %% Requests

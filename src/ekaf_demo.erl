@@ -72,12 +72,16 @@ demo()->
     [ application:start(App) || App <- [gproc, ranch, ekaf] ].
 
 demo_callback(Event, _From, _StateName,
-                #ekaf_fsm{ topic = Topic, broker = _Broker, partition = PartitionId, last_known_size = BufferLength, cor_id = CorId, leader = Leader},
+                #ekaf_fsm{ topic = Topic, broker = _Broker, partition = PartitionId, last_known_size = BufferLength, cor_id = CorId, leader = Leader} = _State,
                 Extra)->
     Stat = <<Topic/binary,".",  Event/binary, ".broker", (ekaf_utils:itob(Leader))/binary, ".", (ekaf_utils:itob(PartitionId))/binary>>,
     case Event of
         ?EKAF_CALLBACK_FLUSH ->
             io:format("~n ~s ~w",[Stat, BufferLength]),
+            %NOTE, if application:set_env(ekaf, ?EKAF_PUSH_TO_STATSD_ENABLED, true),
+            % then you can call ekaf_stats:udp_gauge(_State#ekaf_fsm.statsd_socket, Stat)
+            % eg: ekaf.events.broker1.0 => 100
+
             %io:format("~n ~p flush broker~w#~p when size was ~p corid ~p via:~p",[Topic, Leader, PartitionId, BufferLength, CorId, _From]);
             ok;
         ?EKAF_CALLBACK_FLUSHED_REPLIED ->
@@ -91,6 +95,9 @@ demo_callback(Event, _From, _StateName,
             end;
         ?EKAF_CALLBACK_WORKER_UP ->
             io:format("~n ~s 1",[Stat]),
+            %NOTE, if application:set_env(ekaf, ?EKAF_PUSH_TO_STATSD_ENABLED, true),
+            % then you can call ekaf_stats:udp_incr(_State#ekaf_fsm.statsd_socket, Stat)
+            % eg: ekaf.events.worker_up
             ok;
         ?EKAF_CALLBACK_WORKER_DOWN ->
             io:format("~n ~s 1",[Stat]),

@@ -12,7 +12,8 @@
          %% read configs per topic
          get_bootstrap_broker/0, get_bootstrap_topics/0, get_max_buffer_size/1,
          get_max_downtime_buffer_size/1,
-         get_concurrency_opts/1, get_buffer_ttl/1, get_default/3,
+         get_concurrency_opts/1, get_buffer_ttl/1, open_socket_if_statsd_enabled/1,
+         get_default/3,
          get_pool_name/1,
 
          %% fsm handling
@@ -467,15 +468,32 @@ get_max_downtime_buffer_size(Topic)->
 get_buffer_ttl(Topic)->
     get_default(Topic, ekaf_buffer_ttl, ?EKAF_DEFAULT_BUFFER_TTL).
 
+open_socket_if_statsd_enabled(Topic) ->
+    case get_default(Topic, ?EKAF_PUSH_TO_STATSD_ENABLED, ?EKAF_DEFAULT_PUSH_TO_STATSD_ENABLED) of
+        true ->
+            %% workers will maintain a udp socket to localhost:8125
+            %% callbacks can then use #ekaf_server.statsd_socket, #ekaf_fsm.statsd_socket
+            %% to pushing metrics, using ekaf_stats:udp_incr(Socket, Metric) for counters
+            %% and ekaf_stats:udp_gauge(Socket, Metric, Int) for gauges
+            case gen_udp:open(0,[binary]) of
+                {ok, _StatsSocket} ->
+                    _StatsSocket;
+                _E ->
+                    undefined
+            end;
+        _E ->
+            undefined
+    end.
+
 get_default(Topic, Key, Default)->
     case application:get_env(ekaf,Key) of
         {ok,L} when is_list(L)->
-            case proplists:get_value(Topic, L) of
-                TopicData when TopicData =/= undefined->
+            case lists:keyfind(Topic, 1, L) of
+                {_,TopicData} ->
                     TopicData;
                 _ ->
-                    case proplists:get_value(Key, L) of
-                        TopicData when TopicData =/= undefined ->
+                    case lists:keyfind(Key, 1, L) of
+                        {_,TopicData} ->
                             TopicData;
                         _ ->
                            Default
