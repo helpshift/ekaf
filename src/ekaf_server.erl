@@ -63,11 +63,12 @@ start_link(Name,Args) ->
 %% until then queue up tasks
 init([Topic])->
     Self = self(),
+    PrefixedTopic = ?PREFIX_EKAF(Topic),
     State = generic_init(Topic),
-    gproc:reg({n,l,Topic},[]),
-    pg2:create(Topic),
-    ekaf_picker:join_group_if_not_present(Topic, self()),
-    gen_fsm:send_event(self(), connect),
+    gproc:reg({n,l,PrefixedTopic},[]),
+    pg2:create(PrefixedTopic),
+    ekaf_picker:join_group_if_not_present(PrefixedTopic, Self),
+    gen_fsm:send_event(Self, connect),
     StatsSocket = ekaf_lib:open_socket_if_statsd_enabled(Topic),
     {ok, downtime, State#ekaf_server{topic = Topic, worker = Self, statsd_socket = StatsSocket}};
 init(_Args) ->
@@ -222,7 +223,7 @@ ready({timeout, Timer, <<"refresh">> = TimeoutKey}, #ekaf_server{
                        {error,_}->
                            State#ekaf_server{ ctr = 0 };
                        {NextWorker, NextState} when Strategy =:= strict_round_robin->
-                           Members = pg2:get_local_members(Topic),
+                           Members = pg2:get_local_members(?PREFIX_EKAF(Topic)),
                            NextWorkers = case Workers of [] -> Members; _ -> case State#ekaf_server.workers -- Members of [] -> Workers; _ -> Members end end,
                            NextState#ekaf_server{ ctr = 0, worker = NextWorker, workers =  NextWorkers};
                        {NextWorker, NextState} ->
@@ -425,14 +426,14 @@ handle_info({worker, down, WorkerDown, WorkerId, WorkerDownStateName, WorkerDown
                         WorkerDown, WorkerDownStateName, WorkerDownState, WorkerDownReason),
     case NextWorkers of
         [] ->
-            ekaf_picker:join_group_if_not_present(Topic, self()),
+            ekaf_picker:join_group_if_not_present(?PREFIX_EKAF(Topic), self()),
             gen_fsm:send_event(self(), connect),
             fsm_next_state(downtime,State#ekaf_server { ongoing_metadata = true, workers = NextWorkers, worker = self(), time = os:timestamp() });
         _ ->
             fsm_next_state(ready, State#ekaf_server{ ongoing_metadata = true, workers = NextWorkers, worker = NextWorker, time = os:timestamp() } )
     end;
 handle_info({worker, up, WorkerUp, WorkerUpStateName, WorkerUpState, _}, StateName, #ekaf_server { topic = Topic, messages = OfflineMessages } = State) ->
-    pg2:leave(Topic, self()),
+    pg2:leave(?PREFIX_EKAF(Topic), self()),
     case StateName of
         ready ->
             ekaf_server_lib:send_messages(StateName, State, lists:reverse(OfflineMessages));
@@ -447,7 +448,7 @@ handle_info({worker, up, WorkerUp, WorkerUpStateName, WorkerUpState, _}, StateNa
             ok
     end,
     Next = ekaf_server_lib:reply_to_prepares(WorkerUp, State),
-    fsm_next_state(StateName, Next#ekaf_server{ worker = WorkerUp, messages = [], workers = pg2:get_local_members(Topic)});
+    fsm_next_state(StateName, Next#ekaf_server{ worker = WorkerUp, messages = [], workers = pg2:get_local_members(?PREFIX_EKAF(Topic))});
 handle_info({set, strategy, Value}, ready, State)->
     Next = State#ekaf_server{ strategy = Value },
     fsm_next_state(ready, Next);
@@ -477,7 +478,7 @@ handle_info(_Info, StateName, State) ->
 %% Returns: any
 %%--------------------------------------------------------------------
 terminate(_Reason, _StateName, #ekaf_server{ topic = Topic }) ->
-    pg2:delete(Topic),
+    pg2:delete(?PREFIX_EKAF(Topic)),
     ok.
 
 %%--------------------------------------------------------------------

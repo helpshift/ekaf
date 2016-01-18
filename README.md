@@ -247,12 +247,13 @@ In production having when 100's of workers pushing to your favorite statsd clien
     % Then to get the metric ekaf.events.broker1.0 => N do
     
     demo_callback(Event, _From, _StateName, 
-                #ekaf_fsm{ topic = Topic, partition = PartitionId, last_known_size = BufferLength, leader = Leader} = State,
+                #ekaf_fsm{ topic = Topic, partition = PartitionId, last_known_size = BufferLength, leader = Leader} = _State,
                 Extra)->
+    
         Stat = <<Topic/binary,".",  Event/binary, ".broker", (ekaf_utils:itob(Leader))/binary, ".", (ekaf_utils:itob(PartitionId))/binary>>,
         case Event of
         ?EKAF_CALLBACK_FLUSH ->
-            ekaf_stats:udp_gauge(State#ekaf_fsm.statsd_socket,
+            ekaf_stats:udp_gauge(_State#ekaf_fsm.statsd_socket,
                                  Stat,
                                  BufferLength),
             ok;
@@ -262,6 +263,7 @@ In production having when 100's of workers pushing to your favorite statsd clien
 * Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_broker,Broker}` during the first produce to a topic, and then caches this data for that topic.
 * Extensive use of records for `O(1)` lookup
 * By using binary as the preferred format for Topic, etc, - lists are avoided in all places except the `{BrokerHost,_Port}`.
+* All pg2 and gproc names are prefixed with <<"ekaf.",Topic/binary>> for better namespacing
 
 ### Concurrency when publishing to multiple topics ###
 Each Topic, will have a pg2 process group, but maintaining the pool is done internally for maintaining round-robin, etc. You can pick a random partition worker for a topic via

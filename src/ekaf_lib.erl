@@ -39,7 +39,7 @@ prepare(Topic)->
                          {Topic, {ekaf_server, start_link, [[Topic]]},
                           transient, infinity, worker, []}
                         ),
-    Pid = (catch gproc:where({n,l,Topic})),
+    Pid = (catch gproc:where({n,l,?PREFIX_EKAF(Topic)})),
     case Pid of
         SomePid when is_pid(SomePid)->
             gen_fsm:sync_send_event(Pid, prepare);
@@ -69,7 +69,7 @@ common_async(Event, Topic, {Key,Data})->
 common_async(_, _, [])->
     ok;
 common_async(Event, Topic, [{Key,Data}|Rest])->
-    case gproc:where({n,l,Topic}) of
+    case gproc:where({n,l,?PREFIX_EKAF(Topic)}) of
         undefined ->
             prepare(Topic, fun(_)->
                                    common_async(Event, Topic, {Key,Data})
@@ -129,7 +129,7 @@ common_sync(Event, Topic, Data, Timeout)->
 common_sync(_, _, [], _, Results)->
     lists:reverse(Results);
 common_sync(Event, Topic, [{Key,Data}|Rest]=AllData, Timeout, Results)->
-    case gproc:where({n,l,Topic}) of
+    case gproc:where({n,l,?PREFIX_EKAF(Topic)}) of
         undefined ->
             prepare(Topic, fun(_)->
                                    common_sync(Event, Topic, AllData, Timeout, Results)

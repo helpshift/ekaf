@@ -42,7 +42,8 @@ pick(Topic, Callback, Mode, Strategy) ->
     end.
 
 pick_async(Topic,Callback)->
-    RegName = (catch gproc:where({n,l,Topic})),
+    PrefixedTopic = ?PREFIX_EKAF(Topic),
+    RegName = (catch gproc:where({n,l,PrefixedTopic})),
     TempCallback = fun(_With)->
                            Pid = spawn(fun()->
                                                receive
@@ -52,7 +53,7 @@ pick_async(Topic,Callback)->
                                                        {error, _UE}
                                                end
                                        end),
-                           gproc:send({n,l,Topic}, {pick, Topic, Pid})
+                           gproc:send({n,l,PrefixedTopic}, {pick, Topic, Pid})
                    end,
     case RegName of
         {'EXIT',Reason} ->
@@ -71,7 +72,7 @@ pick_sync(_Topic, _Callback, ketama, _Attempt)->
     error;
 %% if strategy is sticky_round_robin or strict_round_robin or random
 pick_sync(Topic, Callback, _Strategy, _Attempt)->
-    case pg2:get_closest_pid(Topic) of
+    case pg2:get_closest_pid(?PREFIX_EKAF(Topic)) of
         PoolPid when is_pid(PoolPid) ->
             handle_callback(Callback,PoolPid);
         {error, {no_process,_}}->

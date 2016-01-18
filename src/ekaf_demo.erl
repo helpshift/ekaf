@@ -173,7 +173,7 @@ tuple_to_statsd_key(X) when is_binary(X) ->
 %% Public helper functions
 %%====================================================================
 get_workers(Topic)->
-    pg2:get_local_members(Topic).
+    pg2:get_local_members(?PREFIX_EKAF(Topic)).
 
 get_dead_workers(Topic) when is_binary(Topic)->
     Workers = get_workers(Topic),
@@ -215,7 +215,7 @@ get_info_from_state(State, _)->
     State.
 
 get_ekaf_server_message_queue_size(Topic)->
-    TopicPid = gproc:where({n,l,Topic}),
+    TopicPid = gproc:where({n,l,?PREFIX_EKAF(Topic)}),
     case TopicPid of
         undefined ->
             -1;

@@ -125,8 +125,9 @@ ready({produce_async, _Messages} = Async, PrevState)->
 ready({produce_async_batched, _Messages}= Async, PrevState)->
     ekaf_lib:handle_async_as_batch(true, Async, PrevState);
 ready(ping, #ekaf_fsm{ topic = Topic } = State)->
-    pg2:join(Topic,self()),
-    gproc:send({n,l,Topic}, {worker, up, self(), ready, State, undefined}),
+    PrefixedTopic = ?PREFIX_EKAF(Topic),
+    pg2:join(PrefixedTopic,self()),
+    gproc:send({n,l,PrefixedTopic}, {worker, up, self(), ready, State, undefined}),
     fsm_next_state(ready,State);
 ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
     Len = length(Buffer),
@@ -160,8 +161,8 @@ ready(_Event, State)->
 downtime({timeout, Timer, <<"refresh">>}, State)->
     gen_fsm:cancel_timer(Timer),
     fsm_next_state(downtime, State);
-downtime(Event, State)->
-    case (catch gproc:where({n,l,State#ekaf_fsm.topic})) of
+downtime(Event, #ekaf_fsm{ topic = Topic } = State)->
+    case (catch gproc:where({n,l,?PREFIX_EKAF(Topic)})) of
         Standby when is_pid(Standby)->
             ?INFO_MSG("downtime/2 cant handle ~p, send to ~p",[Event, Standby]),
             gen_fsm:send_event(Standby, Event);
@@ -290,16 +291,17 @@ handle_info(Info, StateName, State) ->
 %%--------------------------------------------------------------------
 terminate(Reason, StateName,  #ekaf_fsm{ id = WorkerId, socket = Socket, topic = Topic, buffer = Buffer } = State)->
     ekaf_socket:close(Socket),
-    (catch gproc:send({n,l,Topic}, {worker, down, self(), WorkerId, StateName, State, Reason})),
+    PrefixedTopic = ?PREFIX_EKAF(Topic),
+    (catch gproc:send({n,l,PrefixedTopic}, {worker, down, self(), WorkerId, StateName, State, Reason})),
 
     case Buffer of
         [] ->
             ok;
         _ ->
             ?INFO_MSG("stopping since ~p when buffer had ~p items",[Reason, length(Buffer)]),
-            gproc:send({n,l,Topic}, {add, queue, Buffer})
+            gproc:send({n,l,PrefixedTopic}, {add, queue, Buffer})
     end,
-    pg2:leave(Topic,self()),
+    pg2:leave(PrefixedTopic,self()),
     ok.
 %%--------------------------------------------------------------------
 %% Func: code_change/4
