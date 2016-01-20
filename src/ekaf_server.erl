@@ -247,7 +247,7 @@ ready(Msg, State) ->
 %%--------------------------------------------------------------------
 ready(info, _From, State)->
     Reply = State,
-    {reply, Reply, State};
+    {reply, Reply, ready, State};
 ready({produce_sync, Messages}, _From, State)->
     ekaf_server_lib:save_messages(ready, State, Messages);
 ready(prepare, From, #ekaf_server{ kv = KV } = State)->
@@ -276,7 +276,7 @@ ready(Msg, _From, State)->
 
 downtime(info, _From, State)->
     Reply = State,
-    {reply, Reply, State};
+    {reply, Reply, downtime, State};
 downtime(prepare, From, #ekaf_server{ kv = KV, socket = Socket } = State)->
     %got prepare during downtime
     case Socket of
