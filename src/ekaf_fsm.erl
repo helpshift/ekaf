@@ -155,6 +155,8 @@ ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_si
     gen_fsm:cancel_timer(Timer),
     gen_fsm:start_timer(NextTTL,<<"refresh">>),
     fsm_next_state(ready, State#ekaf_fsm{ to_buffer = true, last_known_size = Len, cor_id = CorId });
+ready({stop, _Reason}, State) ->
+    fsm_next_state(downtime, State);
 ready(_Event, State)->
     fsm_next_state(ready,State).
 
