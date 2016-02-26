@@ -105,7 +105,7 @@ pick_test_() ->
       ,{spawn, ?_test(?debugVal(t_produce_async_multi_in_batch_to_topic()))}
       , ?_test(t_is_clean())
 
-      , {spawn, ?_test(?debugVal(t_restart_kafka_broker()))}
+      , {timeout, 10, {spawn, ?_test(?debugVal(t_restart_kafka_broker()))}}
       , ?_test(t_is_clean())
       ,{spawn, ?_test(?debugVal(t_change_kafka_config()))}
       , ?_test(t_is_clean())
