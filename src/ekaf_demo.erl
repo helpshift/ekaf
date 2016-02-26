@@ -164,7 +164,7 @@ tuple_to_statsd_key(X) when is_binary(X) ->
 %% Public helper functions
 %%====================================================================
 get_workers(Topic)->
-    pg2:get_local_members(Topic).
+    pg2l:get_local_members(Topic).
 
 get_dead_workers(Topic) when is_binary(Topic)->
     Workers = get_workers(Topic),

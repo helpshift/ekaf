@@ -120,7 +120,7 @@ ready({produce_async, _Messages} = Async, PrevState)->
 ready({produce_async_batched, _Messages}= Async, PrevState)->
     ekaf_lib:handle_async_as_batch(true, Async, PrevState);
 ready(ping, #ekaf_fsm{ topic = Topic } = State)->
-    pg2:join(Topic,self()),
+    pg2l:join(Topic,self()),
     gproc:send({n,l,Topic}, {worker, up, self(), ready, State, undefined}),
     fsm_next_state(ready,State);
 ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_size = MaxBufferSize, buffer_ttl = BufferTTL, cor_id = PrevCorId, last_known_size = LastKnownSize} = PrevState)->
@@ -293,7 +293,7 @@ terminate(Reason, StateName,  #ekaf_fsm{ id = WorkerId, socket = Socket, topic =
             io:format("~n ~p stopping since ~p when buffer had ~p items",[Self, Reason, Buffer]),
             gproc:send({n,l,Topic}, {add, queue, Buffer})
     end,
-    pg2:leave(Topic,self()),
+    pg2l:leave(Topic,self()),
     ok.
 %%--------------------------------------------------------------------
 %% Func: code_change/4

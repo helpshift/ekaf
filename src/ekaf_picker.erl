@@ -69,7 +69,7 @@ pick_sync(_Topic, _Callback, ketama, _Attempt)->
     error;
 %% if strategy is sticky_round_robin or strict_round_robin or random
 pick_sync(Topic, Callback, _Strategy, _Attempt)->
-    case pg2:get_closest_pid(Topic) of
+    case pg2l:get_closest_pid(Topic) of
         PoolPid when is_pid(PoolPid) ->
             handle_callback(Callback,PoolPid);
         {error, {no_process,_}}->
@@ -88,10 +88,10 @@ handle_callback(Callback, Pid)->
     end.
 
 join_group_if_not_present(PG, Pid)->
-    Pids = pg2:get_members(PG),
+    Pids = pg2l:get_members(PG),
     case lists:member(Pid, Pids) of
         true ->
             ok;
         _ ->
-            pg2:join(PG, Pid)
+            pg2l:join(PG, Pid)
     end.
