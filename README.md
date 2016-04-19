@@ -29,7 +29,7 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
 
     %%%% mandatory. ekaf needs atleast 1 broker to connect.
     %% To eliminate a SPOF, use an IP to a load balancer to a bunch of brokers
-    application:set_env(ekaf, {ekaf_bootstrap_broker,{"localhost",9091}}),
+    application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost", 9091}),
 
 
     application:start(ekaf),
