@@ -32,7 +32,7 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
     application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost", 9091}),
 
 
-    application:start(ekaf),
+    {ok, _} = application:ensure_all_started(ekaf),
 
     Topic = <<"ekaf">>,
 
