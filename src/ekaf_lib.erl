@@ -75,8 +75,7 @@ common_async(Event, Topic, [{Key,Data}|Rest])->
                                    common_async(Event, Topic, {Key,Data})
                            end);
         TopicWorker ->
-            TopicWorker ! {pick, {Key,Data}, self()},
-            receive
+            case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
                 {ok,Worker} ->
                     case Worker of
                         {error,{retry,_N}} ->
@@ -135,8 +134,7 @@ common_sync(Event, Topic, [{Key,Data}|Rest]=AllData, Timeout, Results)->
                                    common_sync(Event, Topic, AllData, Timeout, Results)
                            end);
         TopicWorker ->
-            TopicWorker ! {pick, {Key,Data}, self()},
-            receive
+            case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
                 {ok,Worker} ->
                     case Worker of
                         {error,{retry,_N}} ->

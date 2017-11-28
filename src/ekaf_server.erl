@@ -219,7 +219,7 @@ ready({timeout, Timer, <<"refresh">> = TimeoutKey}, #ekaf_server{
              end,
     Next = case ToPick of
                true ->
-                   case ekaf_server_lib:handle_pick({pick, Topic, undefined}, self(), State) of
+                   case ekaf_server_lib:handle_pick({pick, Topic}, self(), State) of
                        {error,_}->
                            State#ekaf_server{ ctr = 0 };
                        {NextWorker, NextState} when Strategy =:= strict_round_robin->
@@ -323,26 +323,14 @@ handle_event(_Event, StateName, StateData) ->
 %%          {stop, Reason, NewStateData}                          |
 %%          {stop, Reason, Reply, NewStateData}
 %%--------------------------------------------------------------------
-handle_sync_event(_Event, _From, StateName, State) ->
-    Reply = ok,
-    {reply, Reply, StateName, State}.
-
-%%--------------------------------------------------------------------
-%% Func: handle_info/3
-%% Returns: {next_state, NextStateName, NextStateData}          |
-%%          {next_state, NextStateName, NextStateData, Timeout} |
-%%          {stop, Reason, NewStateData}
-%%--------------------------------------------------------------------
-handle_info({pick, _Topic, Callback}, ready, #ekaf_server{ strategy = strict_round_robin, workers = [Worker|Workers] } = State) ->
-    Callback ! {ok,Worker},
-    fsm_next_state(ready, State#ekaf_server{ workers = lists:append(Workers,[Worker])} );
-handle_info({pick, _Topic, Callback}, ready, #ekaf_server{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
-    Callback ! {ok, Worker},
-    fsm_next_state(ready, State#ekaf_server{ ctr = Ctr + 1});
+handle_sync_event({pick, _Topic}, _From, ready, #ekaf_server{ strategy = strict_round_robin, workers = [Worker|Workers] } = State) ->
+    fsm_reply({ok,Worker}, ready, State#ekaf_server{ workers = lists:append(Workers,[Worker])} );
+handle_sync_event({pick, _Topic}, _From, ready, #ekaf_server{ strategy = sticky_round_robin, worker = Worker, ctr = Ctr } = State) ->
+    fsm_reply({ok, Worker}, ready, State#ekaf_server{ ctr = Ctr + 1});
 %% if this strategy has been decided (can be configured for all topics, or for specific topics)
 %% then all messages of a tuple form {Key,Bin} will be passed to a function to decide the partition based on Key
-handle_info({pick, Data, Callback}, ready, #ekaf_server{ topic = Topic, strategy = custom,
-                                                         workers = [FirstWorker|RestWorkers] = Workers} = State) ->
+handle_sync_event({pick, Data}, _From, ready, #ekaf_server{ topic = Topic, strategy = custom,
+                                                            workers = [FirstWorker|RestWorkers] = Workers} = State) ->
     {M,F} = ekaf_lib:get_default(Topic, ?EKAF_CALLBACK_CUSTOM_PARTITION_PICKER_ATOM, {ekaf_callbacks, default_custom_partition_picker}),
     {FinalWorker, Next} =
         case (catch M:F(Topic, Data, State)) of
@@ -375,20 +363,28 @@ handle_info({pick, Data, Callback}, ready, #ekaf_server{ topic = Topic, strategy
                  State#ekaf_server{ workers = lists:append(RestWorkers,[FirstWorker])}}
         end,
 
-    case FinalWorker of
-        {error,_} = Er ->
-            %% don't send the message because of an error
-            Callback ! Er;
-        _ ->
-            Callback ! {ok, FinalWorker}
-    end,
-    fsm_next_state(ready, Next);
-handle_info({pick, _Topic, Callback}, ready, #ekaf_server{ worker = Worker} = State) ->
-    Callback ! {ok, Worker},
-    fsm_next_state(ready, State);
-handle_info({pick, _, Callback}, StateName, State)->
-    Callback ! {ok, self()},
-    fsm_next_state(StateName, State);
+    Reply =
+        case FinalWorker of
+            {error,_} = Er ->
+                %% don't send the message because of an error
+                Er;
+            _ ->
+                {ok, FinalWorker}
+        end,
+    fsm_reply(Reply, ready, Next);
+handle_sync_event({pick, _Topic}, _From, ready, #ekaf_server{ worker = Worker} = State) ->
+    fsm_reply({ok, Worker}, ready, State);
+handle_sync_event({pick, _}, _From, StateName, State)->
+    fsm_reply({ok, self()}, StateName, State);
+handle_sync_event(_Event, _From, StateName, State) ->
+    fsm_reply(ok, StateName, State).
+
+%%--------------------------------------------------------------------
+%% Func: handle_info/3
+%% Returns: {next_state, NextStateName, NextStateData}          |
+%%          {next_state, NextStateName, NextStateData, Timeout} |
+%%          {stop, Reason, NewStateData}
+%%--------------------------------------------------------------------
 handle_info({worker, enqueue, Worker}, ready, #ekaf_server{ workers = Workers} = State) ->
     fsm_next_state(ready, State#ekaf_server{ workers = lists:append(Workers--[Worker],[Worker])} );
 handle_info({worker, down, WorkerDown, WorkerId, WorkerDownStateName, WorkerDownState, WorkerDownReason}, _StateName, #ekaf_server{ topic = Topic, worker = Worker, ongoing_metadata = RequestedMetadata, workers = Workers } =  State)->
@@ -411,7 +407,7 @@ handle_info({worker, down, WorkerDown, WorkerId, WorkerDownStateName, WorkerDown
                              [AnotherWorker|_]->
                                  AnotherWorker;
                              _ ->
-                                 case ekaf_server_lib:handle_pick({pick, Topic, undefined}, self(), State#ekaf_server{ workers = NextWorkers }) of
+                                 case ekaf_server_lib:handle_pick({pick, Topic}, self(), State#ekaf_server{ workers = NextWorkers }) of
                                      {TempNextWorker, _} when is_pid(TempNextWorker) ->
                                          TempNextWorker;
                                      _NoWorker ->
@@ -494,3 +490,6 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
 %%--------------------------------------------------------------------
 fsm_next_state(StateName, StateData)->
     {next_state, StateName, StateData}.
+
+fsm_reply(Reply, StateName, StateData) ->
+    {reply, Reply, StateName, StateData}.

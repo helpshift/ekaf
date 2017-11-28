@@ -67,7 +67,7 @@ handle_metadata_during_bootstrapping({metadata, resp, Metadata}, #ekaf_server{ t
 %%% External functions
 %%--------------------------------------------------------------------
 
-handle_pick({pick, Topic, _Callback}, _From, State)->
+handle_pick({pick, Topic}, _From, State)->
     case ekaf_picker:pick(Topic, undefined, sync, State#ekaf_server.strategy) of
         Pid when is_pid(Pid)->
             {Pid, State#ekaf_server{ worker = Pid}};
