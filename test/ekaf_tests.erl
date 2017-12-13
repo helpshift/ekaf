@@ -70,7 +70,7 @@ pick_test_() ->
              application:set_env(ekaf, ?EKAF_CALLBACK_MAX_DOWNTIME_BUFFER_REACHED_ATOM, {?MODULE, callback}),
 
              application:set_env(ekaf, ekaf_per_partition_workers, 1),
-             application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost",9907}),
+             application:set_env(ekaf, ekaf_bootstrap_brokers, [{"localhost",9907}]),
              application:set_env(ekaf, ekaf_buffer_ttl, 10),
              application:set_env(ekaf, ekaf_max_downtime_buffer_size, 5),
 

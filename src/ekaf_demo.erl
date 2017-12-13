@@ -62,10 +62,10 @@ demo()->
     % POINT TO KAFKA
 
     % point to kafkamocker
-    application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost", 9907}),
+    application:set_env(ekaf, ekaf_bootstrap_brokers, [{"localhost", 9907}]),
 
     % uncomment to point to an actual kafka broker, eg: on port 9091
-    % application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost", 9091}),
+    % application:set_env(ekaf, ekaf_bootstrap_brokers, [{"localhost", 9091}]),
 
     application:set_env(ekaf, ekaf_buffer_ttl, 1000),
     application:ensure_started(kafkamocker),

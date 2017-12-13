@@ -29,7 +29,7 @@ Topic is a binary. and the payload can be a list, a binary, a key-value tuple, o
 
     %%%% mandatory. ekaf needs atleast 1 broker to connect.
     %% To eliminate a SPOF, use an IP to a load balancer to a bunch of brokers
-    application:set_env(ekaf, ekaf_bootstrap_broker, {"localhost", 9091}),
+    application:set_env(ekaf, ekaf_bootstrap_brokers, [{"localhost", 9091}]),
 
 
     {ok, _} = application:ensure_all_started(ekaf),
@@ -260,7 +260,7 @@ In production having when 100's of workers pushing to your favorite statsd clien
 
 ### Optimized for using on a cluster ###
 * Works well if embedding into other OTP/rebar style apps ( eg: tested with `kafboy`)
-* Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_broker,Broker}` during the first produce to a topic, and then caches this data for that topic.
+* Only gets metadata for the topic being published. ekaf does not start workers until a produce is called, hence easily horizontally scalable - can be added to a load balancer without worrying about creating holding up valuable connections to a broker on bootup. Queries metadata directly from a `{ekaf_bootstrap_brokers,Brokers}` during the first produce to a topic, and then caches this data for that topic.
 * Extensive use of records for `O(1)` lookup
 * By using binary as the preferred format for Topic, etc, - lists are avoided in all places except the `{BrokerHost,_Port}`.
 * All pg2 and gproc names are prefixed with <<"ekaf.",Topic/binary>> for better namespacing
@@ -329,7 +329,7 @@ Choosing a worker is done by a worker of `ekaf_server` for every topic. It looks
     {ekaf,[
 
         % required.
-        {ekaf_bootstrap_broker, {"localhost", 9091} },
+        {ekaf_bootstrap_brokers, [{"localhost", 9091}] },
         % pass the {BrokerHost,Port} of atleast one permanent broker. Ideally should be
         %       the IP of a load balancer so that any broker can be contacted
 

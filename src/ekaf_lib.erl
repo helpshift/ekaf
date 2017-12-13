@@ -428,11 +428,11 @@ stop_child(WorkerId)->
           end).
 
 get_bootstrap_broker()->
-    case application:get_env(ekaf, ekaf_bootstrap_broker) of
-        {ok,{Broker,Port}}->
-            {Broker,Port};
+    case application:get_env(ekaf, ekaf_bootstrap_brokers) of
+        {ok, Brokers} when is_list(Brokers) ->
+            Brokers;
         _ ->
-            {"localhost",9091}
+            [{"localhost",9091}]
     end.
 
 get_bootstrap_topics()->

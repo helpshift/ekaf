@@ -120,7 +120,7 @@
 %% Records
 %%======================================================================
 %% Used by each topic workers
--record(ekaf_server, {broker,
+-record(ekaf_server, {brokers=[],
                       strategy,
                       worker,
                       workers=[],

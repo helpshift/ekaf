@@ -79,12 +79,12 @@ generic_init(Topic)->
     Strategy = ekaf_lib:get_default(Topic,ekaf_partition_strategy, ?EKAF_DEFAULT_PARTITION_STRATEGY),
     StickyPartitionBatchSize = ekaf_lib:get_default(Topic,ekaf_sticky_partition_buffer_size, 1000),
     MaxDowntimeBufferSize = ekaf_lib:get_max_downtime_buffer_size(Topic),
-    BootstrapBroker = ekaf_lib:get_bootstrap_broker(),
+    BootstrapBrokers = ekaf_lib:get_bootstrap_broker(),
     gen_fsm:start_timer(1000,<<"refresh">>),
     #ekaf_server{strategy = Strategy, kv = dict:new(),
                  max_buffer_size = StickyPartitionBatchSize,
                  max_downtime_buffer_size = MaxDowntimeBufferSize,
-                 broker = BootstrapBroker, time = os:timestamp() }.
+                 brokers = BootstrapBrokers, time = os:timestamp() }.
 
 %%--------------------------------------------------------------------
 %% Func: StateName/2
@@ -92,7 +92,7 @@ generic_init(Topic)->
 %%          {next_state, NextStateName, NextStateData, Timeout} |
 %%          {stop, Reason, NewStateData}
 %%--------------------------------------------------------------------
-downtime(connect, #ekaf_server{ broker = Broker, time = T1 } = State)->
+downtime(connect, #ekaf_server{ brokers = [Broker| Brokers], time = T1 } = State)->
     case ekaf_socket:open(Broker) of
         {ok, Socket} ->
             T2 = os:timestamp(),
@@ -107,7 +107,7 @@ downtime(connect, #ekaf_server{ broker = Broker, time = T1 } = State)->
                                 ?EKAF_CALLBACK_WORKER_STILL_DOWN,
                                 self(), downtime, State, Reason),
             ekaf_server_lib:reconnect_attempt(),
-            fsm_next_state(downtime, State)
+            fsm_next_state(downtime, State#ekaf_server{brokers = Brokers ++ [Broker]})
     end;
 downtime({produce_async, Messages}, State)->
     ekaf_server_lib:save_messages(downtime, State, Messages);
@@ -182,7 +182,7 @@ ready({produce_sync_batched, Messages}, State)->
     ekaf_server_lib:save_messages(ready, State, Messages);
 ready({set, worker, Worker}, State) ->
     {noreply, State#ekaf_server{ worker = Worker}};
-ready(connect, #ekaf_server{ broker = Broker } = State)->
+ready(connect, #ekaf_server{ brokers = [Broker| Brokers] } = State)->
     case ekaf_socket:open(Broker) of
         {ok,Socket} ->
             %% connection good, ask for metadata
@@ -190,7 +190,7 @@ ready(connect, #ekaf_server{ broker = Broker } = State)->
         _ ->
             gen_fsm:start_timer(5000, <<"reconnect">>)
     end,
-    fsm_next_state(ready, State);
+    fsm_next_state(ready, State#ekaf_server{brokers = Brokers ++ [Broker]});
 ready({metadata, req, Socket}, State) ->
     % asked to get metadata during ready
     ekaf_server_lib:handle_connected(State, Socket),

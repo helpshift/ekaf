@@ -1,13 +1,7 @@
-{application, ekaf,
- [
-  {description, "Erlang Kafka Producer"},
-  {vsn, "1.5.4"},
-  {registered, [ekaf_server]},
-  {applications, [
-                  kernel,
-                  stdlib,
-                  gproc
-                 ]},
-  {modules,[ekaf, ekaf_sup, ekaf_protocol, ekaf_server, ekaf_protocol_metadata, ekaf_protocol_produce, ekaf_fsm, ekaf_lib, ekaf_utils, ekaf_picker, ekaf_server_lib, ekaf_socket, ekaf_callbacks, ekaf_demo]},
-  {mod, { ekaf, []}}
- ]}.
+{application,ekaf,
+             [{description,"Erlang Kafka Producer"},
+              {vsn,"1.5.4"},
+              {registered,[ekaf_server]},
+              {applications,[kernel,stdlib,gproc]},
+              {modules,[]},
+              {mod,{ekaf,[]}}]}.
