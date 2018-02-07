@@ -17,8 +17,8 @@ ekaf also powers `kafboy`, the webserver based on `Cowboy` capable of publishing
 
 Add a feature request at https://github.com/helpshift/ekaf or check the ekaf web server at https://github.com/helpshift/kafboy
 
-##Features##
-###Simple API###
+## Features ##
+### Simple API ###
 
 Topic is a binary. and the payload can be a list, a binary, a key-value tuple, or a combination of all the above.
 
