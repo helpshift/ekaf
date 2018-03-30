@@ -52,7 +52,7 @@ handle_metadata_during_bootstrapping({metadata, resp, Metadata}, #ekaf_server{ t
                                       {ok,[Broker]} ->
                                           ekaf_lib:start_child(Metadata, Broker, CurrTopic, Leader, PartitionId);
                                       _ ->
-                                          ?INFO_MSG("cant find broker ~p in metadata for partition ~p",[Leader, Partition]),
+                                          %?INFO_MSG("cant find broker ~p in metadata for partition ~p",[Leader, Partition]),
                                           ok
                                   end
                               end
