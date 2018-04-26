@@ -3,7 +3,7 @@
 -export([pick_sync/3, pick_sync/4,
         pick_async/2, join_group_if_not_present/2,
 
-        pick_first_matching/3]).
+        pick_first_matching/4]).
 
 -include("ekaf_definitions.hrl").
 
@@ -99,14 +99,20 @@ join_group_if_not_present(PG, Pid)->
             pg2:join(PG, Pid)
     end.
 
-pick_first_matching([], _, DefaultWorker)->
+check(Worker, Partitions, Partition) ->
+    case lists:keyfind(Worker, 1, Partitions) of
+        false -> false;
+        {_, Partition1} -> Partition1 =:= Partition
+    end.
+
+pick_first_matching([], _, _, DefaultWorker)->
     DefaultWorker;
-pick_first_matching([Worker|Workers], Pred, DefaultWorker)->
-    case (catch Pred(Worker)) of
+pick_first_matching([Worker|Workers], Partitions, Partition, DefaultWorker)->
+    case (catch check(Worker, Partitions, Partition)) of
         true ->
             Worker;
         false ->
-            pick_first_matching(Workers, Pred, DefaultWorker);
+            pick_first_matching(Workers, Partitions, Partition, DefaultWorker);
         _ ->
             DefaultWorker
     end.

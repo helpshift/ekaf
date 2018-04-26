@@ -135,7 +135,8 @@
                       metadata,
                       ongoing_metadata=false::boolean(),
                       time,
-                      statsd_socket}).
+                      statsd_socket,
+                      partitions=[]}).
 %% Used by topic workers
 -record(ekaf_fsm, { id::integer(),
                     topic::binary(),
