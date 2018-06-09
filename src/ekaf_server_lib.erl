@@ -18,6 +18,7 @@
          reconnect_attempt/0,
          save_messages/3,
          send_messages/3,
+         send_messages/4,
          reply_to_prepares/2
         ]).
 %%====================================================================
@@ -115,6 +116,22 @@ send_messages(StateName, #ekaf_server{ topic = Topic } = State, Messages)->
                 _ ->
                     ok
             end,
+            ekaf:produce_async_batched( Topic, Messages)
+    end.
+
+send_messages(StateName, #ekaf_server{ topic = Topic } = State, Messages, _)->
+    case Messages of
+        [] ->
+            ok;
+        _ ->
+            Self = self(),
+            case ekaf_callbacks:find(?EKAF_CALLBACK_DOWNTIME_REPLAYED_ATOM) of
+                {Mod,Func} ->
+                    Mod:Func(?EKAF_CALLBACK_DOWNTIME_REPLAYED, Self, StateName, State, {ok, Messages });
+                _ ->
+                    ok
+            end,
+            timer:sleep(5000),
             ekaf:produce_async_batched( Topic, Messages)
     end.
 

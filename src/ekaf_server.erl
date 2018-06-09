@@ -432,7 +432,11 @@ handle_info({worker, up, WorkerUp, WorkerUpStateName, WorkerUpState, _}, StateNa
     pg2:leave(?PREFIX_EKAF(Topic), self()),
     case StateName of
         ready ->
-            ekaf_server_lib:send_messages(StateName, State, lists:reverse(OfflineMessages));
+            case length(OfflineMessages) == 0 of
+                true -> ok;
+                false ->
+                    spawn(fun() -> ekaf_server_lib:send_messages(StateName, State, lists:reverse(OfflineMessages), offline) end)
+            end;
         _ ->
             ok
     end,
