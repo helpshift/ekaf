@@ -164,7 +164,7 @@ common_sync(Event, Topic, [{Key,Data}|Rest]=AllData, Timeout, Results)->
                 _:Error ->
                     io:format("Error:~p", [Error]),
                     gen_fsm:send_event(TopicWorker, {Event, [{Key,Data}]}),
-                    common_async(Event, Topic, Rest)
+                    common_sync(Event, Topic, Rest)
             end
     end.
 
