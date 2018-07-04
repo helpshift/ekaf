@@ -75,29 +75,31 @@ common_async(Event, Topic, [{Key,Data}|Rest])->
                                    common_async(Event, Topic, {Key,Data})
                            end);
         TopicWorker ->
-            try
-                %% fix get worker fail bug
-                case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, 5000) of
-                % case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
-                    {ok,Worker} ->
-                        case Worker of
-                            {error,{retry,_N}} ->
-                                common_async(Event, Topic, {Key,Data});
-                            {error,_}=E ->
-                                E;
-                            _ ->
-                                gen_fsm:send_event(Worker, {Event, [{Key,Data}]}),
-                                common_async(Event, Topic, Rest)
-                        end;
-                    _E ->
+            spawn(fun() ->
+                try
+                    %% fix get worker fail bug
+                    case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, 5000) of
+                    % case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
+                        {ok,Worker} ->
+                            case Worker of
+                                {error,{retry,_N}} ->
+                                    common_async(Event, Topic, {Key,Data});
+                                {error,_}=E ->
+                                    E;
+                                _ ->
+                                    gen_fsm:send_event(Worker, {Event, [{Key,Data}]}),
+                                    common_async(Event, Topic, Rest)
+                            end;
+                        _E ->
+                            common_async(Event, Topic, Rest)
+                    end
+                catch
+                    _:Error ->
+                        io:format("Error:~p", [Error]),
+                        gen_fsm:send_event(TopicWorker, {Event, [{Key,Data}]}),
                         common_async(Event, Topic, Rest)
                 end
-            catch
-                _:Error ->
-                    io:format("Error:~p", [Error]),
-                    gen_fsm:send_event(TopicWorker, {Event, [{Key,Data}]}),
-                    common_async(Event, Topic, Rest)
-            end
+            end)
     end;
 %% Pick a worker, and pass it into the callback
 %% usually, callback(worker) blocks on the worker
@@ -143,29 +145,31 @@ common_sync(Event, Topic, [{Key,Data}|Rest]=AllData, Timeout, Results)->
                                    common_sync(Event, Topic, AllData, Timeout, Results)
                            end);
         TopicWorker ->
-            try
-                %% fix get worker fail bug
-                case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, 5000) of
-                % case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
-                    {ok,Worker} ->
-                        case Worker of
-                            {error,{retry,_N}} ->
-                                common_sync(Event, Topic, {Key,Data}, Timeout, Results);
-                            {error,_}=E ->
-                                E;
-                            _ ->
-                                CurrResult = gen_fsm:sync_send_event(Worker, {Event, [{Key,Data}]}),
-                                common_sync(Event, Topic, Rest, Timeout, [CurrResult | Results])
-                        end;
-                    _E ->
-                        common_sync(Event, Topic, Rest, Timeout, [_E|Results])
+            spawn(fun() ->
+                try
+                    %% fix get worker fail bug
+                    case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, 5000) of
+                    % case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
+                        {ok,Worker} ->
+                            case Worker of
+                                {error,{retry,_N}} ->
+                                    common_sync(Event, Topic, {Key,Data}, Timeout, Results);
+                                {error,_}=E ->
+                                    E;
+                                _ ->
+                                    CurrResult = gen_fsm:sync_send_event(Worker, {Event, [{Key,Data}]}),
+                                    common_sync(Event, Topic, Rest, Timeout, [CurrResult | Results])
+                            end;
+                        _E ->
+                            common_sync(Event, Topic, Rest, Timeout, [_E|Results])
+                    end
+                catch
+                    _:Error ->
+                        io:format("Error:~p", [Error]),
+                        gen_fsm:send_event(TopicWorker, {Event, [{Key,Data}]}),
+                        common_sync(Event, Topic, Rest)
                 end
-            catch
-                _:Error ->
-                    io:format("Error:~p", [Error]),
-                    gen_fsm:send_event(TopicWorker, {Event, [{Key,Data}]}),
-                    common_sync(Event, Topic, Rest)
-            end
+            end)    
     end.
 
 cursor(_,[], State)->
