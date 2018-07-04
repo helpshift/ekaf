@@ -290,7 +290,8 @@ spawn_async_as_batch(BatchEnabled,MessageSets, #ekaf_fsm{ cor_id = CorId, socket
                                                        }]
                                            },
                           Request = ekaf_protocol:encode_sync(CorId, ClientId, ProducePacket),
-                          ekaf_socket:fork(Self, Socket, {send, produce_sync, Request})
+                          ekaf_socket:fork(Self, Socket, {send, produce_sync, Request}),
+                          flush_messages_callback(State, <<"produce_async">>)
                   end
           end).
 
@@ -361,6 +362,18 @@ flush_messages_callback(State)->
                   case FlushCallback of
                       {FlushCallbackModule,FlushCallbackFunction} ->
                           FlushCallbackModule:FlushCallbackFunction(?EKAF_CALLBACK_FLUSH, Self, ready, State, undefined);
+                      undefined ->
+                          ok
+                  end
+          end).
+
+flush_messages_callback(State, Type)->
+    Self = self(),
+    spawn(fun()->
+                  FlushCallback = ekaf_callbacks:find(?EKAF_CALLBACK_FLUSH_ATOM),
+                  case FlushCallback of
+                      {FlushCallbackModule,FlushCallbackFunction} ->
+                          FlushCallbackModule:FlushCallbackFunction(Type, Self, ready, State, undefined);
                       undefined ->
                           ok
                   end
