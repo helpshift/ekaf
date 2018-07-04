@@ -142,7 +142,7 @@ ready({timeout, Timer, <<"refresh">>}, #ekaf_fsm{ buffer = Buffer, max_buffer_si
                        % tobuffer is now false since reached batch size
                        {BufferTTL-10,false};
                    _ ->
-                       {BufferTTL,true}
+                       {BufferTTL,false}
                end,
     CorId = case PrevCorId of Big when Big > 2000000000 -> 0;_ -> PrevCorId end,
     %% if no activity for BufferTTL ms, then flush
