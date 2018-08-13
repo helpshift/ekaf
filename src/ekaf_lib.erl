@@ -74,6 +74,9 @@ common_async(Event, Topic, [{Key,Data}|Rest])->
             prepare(Topic, fun(_)->
                                    common_async(Event, Topic, {Key,Data})
                            end);
+        Self  when Self == self()->
+          gen_fsm:send_event(Self, {Event, [{Key,Data}]}),
+          common_async(Event, Topic, Rest);
         TopicWorker ->
             case gen_fsm:sync_send_all_state_event(TopicWorker, {pick, {Key,Data}}, infinity) of
                 {ok,Worker} ->
