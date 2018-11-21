@@ -372,8 +372,16 @@ handle_sync_event({pick, Data}, _From, ready, #ekaf_server{ topic = Topic, strat
                 {ok, FinalWorker}
         end,
     fsm_reply(Reply, ready, Next);
-handle_sync_event({pick, _Topic}, _From, ready, #ekaf_server{ worker = Worker} = State) ->
-    fsm_reply({ok, Worker}, ready, State);
+handle_sync_event({pick, Topic}, _From, ready, #ekaf_server{ worker = Worker} = State) ->
+    PrefixedTopic = ?PREFIX_EKAF(Topic),
+    Alive_Workers = pg2:get_local_members(PrefixedTopic),
+    case lists:member(Worker, Alive_Workers) of
+        true ->
+            fsm_reply({ok, Worker}, ready, State);
+        false ->
+            NextWorker = pg2:get_closest_pid(PrefixedTopic),
+            fsm_reply({ok, NextWorker}, ready, State#ekaf_server{worker = NextWorker, workers = Alive_Workers})
+    end;
 handle_sync_event({pick, _}, _From, StateName, State)->
     fsm_reply({ok, self()}, StateName, State);
 handle_sync_event(_Event, _From, StateName, State) ->
@@ -403,7 +411,7 @@ handle_info({worker, down, WorkerDown, WorkerId, WorkerDownStateName, WorkerDown
     %% lets replace it immediately instead of during ekaf_fsm's <<"refresh">>
     NextWorker = case Worker of
                      WorkerDown ->
-                         case Workers of
+                         case NextWorkers of
                              [AnotherWorker|_]->
                                  AnotherWorker;
                              _ ->
