@@ -102,7 +102,12 @@ common_async(Event, Topic, Data)->
                                  {error,_}=E ->
                                      E;
                                  _ ->
-                                     gen_fsm:send_event(Worker, {Event, Data})
+                                     case is_process_alive(Worker) of
+                                         true ->
+                                             gen_fsm:send_event(Worker, {Event, Data});
+                                         false ->
+                                             common_async(Event, Topic, Data)
+                                     end
                              end
                      end),
     ok.
